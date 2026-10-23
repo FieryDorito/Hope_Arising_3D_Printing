@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Hope Arising app
+config/settings.local.yaml
+jobs/*
+!jobs/.gitkeep
+models/sources.csv.bak
+models/**/.thumb_src.stl

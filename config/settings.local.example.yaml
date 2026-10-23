@@ -1,0 +1,9 @@
+# Copy this file to settings.local.yaml on the shop computer and fill it in.
+# settings.local.yaml is ignored by git, so keys never end up on GitHub.
+# Anything here overrides config/settings.yaml.
+
+agent:
+  api_key: "sk-ant-..."   # or set the ANTHROPIC_API_KEY environment variable instead
+
+# slicer:
+#   executable: "C:\\Program Files\\Prusa3D\\PrusaSlicer\\prusa-slicer-console.exe"
