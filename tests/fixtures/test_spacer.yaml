@@ -1,0 +1,5 @@
+description: Round spacer / washer with a hole through the middle.
+params:
+  - {name: outer_diameter, label: Outside diameter, default: 20, min: 6, max: 80, unit: mm, step: 0.5}
+  - {name: inner_diameter, label: Hole diameter, default: 8, min: 2, max: 70, unit: mm, step: 0.5}
+  - {name: height, label: Height, default: 10, min: 1, max: 60, unit: mm, step: 0.5}

@@ -1,0 +1,14 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.13"}
+      - name: Install slicer and CAD tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends prusa-slicer openscad
+      - run: pip install -r requirements.txt
+      - name: Run tests (every library part must slice)
+        run: QT_QPA_PLATFORM=offscreen python -m pytest -v

@@ -1,0 +1,57 @@
+# Shop settings. Students/maintainers edit this file — shop operators never need to.
+# Machine-specific overrides (API keys, slicer path) go in settings.local.yaml,
+# which is NOT committed to GitHub. See settings.local.example.yaml.
+
+library:
+  # Google Sheet holding the parts catalog ("Parts Library Sources").
+  # The sheet must be shared as "Anyone with the link can view" for the Update button to work.
+  sheet_id: 1FbthCGJGbLa-tIOTBgTZSTdRm4-Zagq2RrbnWfNAhuY
+  sheet_gid: 0
+  catalog_csv: models/sources.csv
+  models_dir: models
+
+printer:
+  name: Creality Ender 3
+  profile: config/printers/ender3.ini
+  bed_x_mm: 220
+  bed_y_mm: 220
+  max_z_mm: 250
+  # Keep parts this far from the bed edges.
+  margin_mm: 5
+
+materials:
+  # key: what the operator sees. price is per kg in Ethiopian Birr (update from Robox catalog).
+  PLA:
+    profile: config/filaments/pla.ini
+    price_per_kg: 1500
+    note: Everyday parts. Not for hot places or outdoors in the sun.
+  PETG:
+    profile: config/filaments/petg.ini
+    price_per_kg: 1800
+    note: Tougher, handles heat and water better.
+
+strength:
+  Normal:
+    profile: config/process/standard.ini
+    note: Most household parts.
+  Strong:
+    profile: config/process/strong.ini
+    note: Parts that carry weight (hooks, brackets, hinges). Uses more plastic.
+
+slicer:
+  # prusaslicer (tested) or orcaslicer (experimental, not yet tested)
+  backend: prusaslicer
+  # Leave blank to find it automatically. On Windows this is usually
+  # C:\Program Files\Prusa3D\PrusaSlicer\prusa-slicer-console.exe
+  executable: ""
+  timeout_s: 600
+
+agent:
+  # claude, or none (manual mode only). Other providers can be added in pipeline/agents/.
+  provider: claude
+  model: claude-sonnet-5-5
+  max_tokens: 1024
+  timeout_s: 60
+
+jobs_dir: jobs
+currency: ETB
