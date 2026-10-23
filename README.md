@@ -14,7 +14,7 @@ Each stage can be replaced without touching the others.
 
 ## Run it
 
-Requirements: Python 3.12+, [PrusaSlicer](https://www.prusa3d.com/page/prusaslicer_424/),
+Requirements: Python 3.13 (3.12 and 3.14 also work; 3.15 is too new for some add-ons yet), [PrusaSlicer](https://www.prusa3d.com/page/prusaslicer_424/),
 and [OpenSCAD](https://openscad.org) (only needed for adjustable parts).
 
 - **Windows:** double-click `start.bat`. The first run installs everything.
