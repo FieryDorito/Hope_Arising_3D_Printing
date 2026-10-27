@@ -44,7 +44,15 @@ if errorlevel 1 (
   )
 )
 
-REM 4. Start the app
+REM 4. Check the settings files for mistakes before starting
+.venv\Scripts\python.exe -m pipeline.config
+if errorlevel 1 (
+  pause
+  exit /b 1
+)
+
+REM 5. Start the app (the browser opens by itself; keep this window open while using it)
+echo Starting the app. A browser tab will open in a few seconds...
 .venv\Scripts\python.exe -m streamlit run ui\app.py --server.headless false
 pause
 exit /b 0
