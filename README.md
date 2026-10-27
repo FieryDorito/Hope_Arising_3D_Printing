@@ -21,7 +21,9 @@ and [OpenSCAD](https://openscad.org) (only needed for adjustable parts).
 - **Linux/macOS:** `./start.sh`
 
 To turn on the AI helper, copy `config/settings.local.example.yaml` to `config/settings.local.yaml`
-and add an Anthropic API key. Without a key, "Browse parts" still works.
+and paste in a key. The default is **Gemini's free tier** (key from https://aistudio.google.com/apikey,
+no credit card). Switch to Claude or an offline Ollama model by changing `agent.provider`.
+Without a key, "Browse parts" still works.
 
 ## Where to change things
 
@@ -31,7 +33,7 @@ and add an Anthropic API key. Without a key, "Browse parts" still works.
 | Printer, bed size | `config/settings.yaml`, `config/printers/*.ini` |
 | Material temps, prices | `config/filaments/*.ini`, `materials:` in settings |
 | Infill / walls | `config/process/*.ini` |
-| AI model or provider | `agent:` in settings; new providers go in `pipeline/agents/` |
+| AI provider (gemini / claude / ollama) | `agent.provider` in settings; new kinds go in `pipeline/agents/` |
 | Slicer (e.g. OrcaSlicer) | `slicer.backend` in settings; backends in `pipeline/slicers/` |
 
 ## Rules that keep it reliable
@@ -44,5 +46,5 @@ and add an Anthropic API key. Without a key, "Browse parts" still works.
 
 ## Status
 
-- Working: library sync from the sheet, browsing and search, Claude agent, size checks, OpenSCAD and STL parts, PrusaSlicer, preview, print time and cost.
+- Working: library sync from the sheet, browsing and search, AI agent (Gemini free tier, Claude, or Ollama), size checks, OpenSCAD and STL parts, PrusaSlicer, preview, print time and cost.
 - Not yet: real model files (only test shapes so far), OrcaSlicer backend (written but **untested**), sending files to the printer over the network.
