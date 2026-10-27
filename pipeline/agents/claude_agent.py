@@ -38,19 +38,21 @@ def _tool(parts: list[Part]) -> dict:
 class ClaudeAgent(Agent):
     name = "claude"
 
-    def __init__(self, client=None):
-        cfg = settings()["agent"]
+    def __init__(self, cfg: dict | None = None, client=None):
+        top = settings()["agent"]
+        cfg = cfg if cfg is not None else top.get("providers", {}).get("claude", {})
         self.model = cfg.get("model", "claude-sonnet-5-5")
-        self.max_tokens = cfg.get("max_tokens", 1024)
+        self.max_tokens = cfg.get("max_tokens", top.get("max_tokens", 1024))
         if client is not None:          # tests pass a fake client
             self.client = client
             return
-        key = cfg.get("api_key") or os.environ.get("ANTHROPIC_API_KEY")
+        key = (cfg.get("api_key") or top.get("api_key")
+               or os.environ.get(cfg.get("api_key_env", "ANTHROPIC_API_KEY"), ""))
         if not key:
             raise AgentError("AI helper is not set up (no API key). Use 'Browse parts' instead.")
         import anthropic
 
-        self.client = anthropic.Anthropic(api_key=key, timeout=cfg.get("timeout_s", 60), max_retries=2)
+        self.client = anthropic.Anthropic(api_key=key, timeout=top.get("timeout_s", 60), max_retries=2)
 
     def suggest(self, request: str, parts: list[Part]) -> Suggestion:
         if not any(p.printable for p in parts):

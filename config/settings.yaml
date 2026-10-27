@@ -47,11 +47,34 @@ slicer:
   timeout_s: 600
 
 agent:
-  # claude, or none (manual mode only). Other providers can be added in pipeline/agents/.
-  provider: claude
-  model: claude-sonnet-5-5
+  # Which AI to use: gemini (free tier, for testing), claude, ollama (free, offline), or none.
+  # Switching is just changing this word. Keys go in settings.local.yaml, never here.
+  provider: gemini
   max_tokens: 1024
   timeout_s: 60
+  providers:
+    gemini:
+      # Free: get a key at https://aistudio.google.com/apikey (no credit card).
+      # Free-tier prompts may be read by Google to improve its products -
+      # fine for testing, don't type customers' personal details.
+      type: openai_compatible
+      label: Gemini
+      base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+      model: gemini-3.8-flash
+      api_key_env: GEMINI_API_KEY
+    claude:
+      # Paid (Anthropic API credits). Key from https://console.anthropic.com
+      type: claude
+      model: claude-sonnet-5-5
+      api_key_env: ANTHROPIC_API_KEY
+    ollama:
+      # Free and offline: install Ollama, run `ollama pull llama3.2`, then set provider: ollama.
+      # Needs a reasonably fast computer; answers are less reliable than Gemini/Claude.
+      type: openai_compatible
+      label: Local AI
+      base_url: http://localhost:11434/v1/
+      model: llama3.2
+      needs_key: false
 
 jobs_dir: jobs
 currency: ETB
