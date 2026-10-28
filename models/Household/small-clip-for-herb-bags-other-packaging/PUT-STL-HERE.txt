@@ -1,0 +1,4 @@
+Put the 3D file for "Small Clip - for herb bags & other packaging" in this folder (one .stl file).
+Download it from: https://www.printables.com/model/6806-small-clip-for-herb-bags-other-packaging
+If it came as a .zip, open the zip and drag just the .stl here.
+Then you can delete this note.

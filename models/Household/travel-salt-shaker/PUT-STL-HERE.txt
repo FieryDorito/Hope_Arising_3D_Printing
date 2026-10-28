@@ -1,0 +1,4 @@
+Put the 3D file for "Travel salt shaker" in this folder (one .stl file).
+Download it from: https://www.printables.com/model/390535-travel-salt-shaker
+If it came as a .zip, open the zip and drag just the .stl here.
+Then you can delete this note.
