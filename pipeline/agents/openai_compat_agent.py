@@ -65,6 +65,8 @@ def tool_schema(parts: list[Part]) -> dict:
                     "strength": {"type": "string", "enum": list(s["strength"])},
                     "explanation": {"type": "string"},
                     "question_for_customer": {"type": "string"},
+                    "options": {"type": "array", "items": {"type": "string"},
+                                "description": "Labels of the part's files to print, if it has several."},
                 },
                 "required": ["part_id", "settings", "material", "strength", "explanation"],
             },
@@ -157,5 +159,6 @@ class OpenAICompatAgent(Agent):
             strength=data.get("strength"),
             explanation=data.get("explanation", ""),
             question=data.get("question_for_customer", "") or "",
+            options=[str(o) for o in (data.get("options") or [])],
             raw=data,
         )

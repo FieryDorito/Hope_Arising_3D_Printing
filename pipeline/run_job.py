@@ -1,24 +1,29 @@
 """The only entry point the UI (or any future front end) uses.
 
-    job = prepare(request, parts)   # validate + build STL  -> preview
-    job = make_gcode(job)           # slice                -> G-code + time + cost
+    job = prepare(request, parts)   # validate + build one STL per chosen piece -> preview
+    job = make_gcode(job)           # arrange pieces onto plates and slice      -> G-code(s)
 
+Pieces are packed onto as few plates as fit the bed; each plate is one G-code file.
 Every job gets its own folder in jobs/ with the request, the final settings,
-the STL, the G-code and logs, so problems can be reproduced later.
+the STLs, the G-code and logs, so problems can be reproduced later.
 """
 from __future__ import annotations
 
 import json
+import re
 import traceback
+import zipfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from .cad import CadError, ModelInfo, build_model
+from .cad import CadError, ModelInfo, build_piece
 from .config import path, settings
 from .library import Part, get_part
 from .slicers import SliceProfiles, SliceResult, SlicerError, get_slicer
 from .validate import check_fits, check_request
+
+PLATE_GAP_MM = 8  # space left between pieces when planning plates
 
 
 @dataclass
@@ -27,8 +32,24 @@ class JobRequest:
     params: dict
     material: str = "PLA"
     strength: str = "Normal"
-    customer_request: str = ""       # what the operator typed, if the AI was used
+    files: dict[str, int] | None = None   # rel path -> how many; None = the part's defaults
+    customer_request: str = ""            # what the operator typed, if the AI was used
     ai_suggestion: dict | None = None
+
+
+@dataclass
+class Piece:
+    rel: str
+    label: str
+    count: int
+    model: ModelInfo
+
+
+@dataclass
+class Plate:
+    stls: list[Path]                     # one entry per copy
+    labels: list[str]
+    result: SliceResult | None = None
 
 
 @dataclass
@@ -37,20 +58,56 @@ class Job:
     folder: Path
     part: Part | None = None
     params: dict = field(default_factory=dict)
+    files: dict = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
-    model: ModelInfo | None = None
-    slice: SliceResult | None = None
+    pieces: list[Piece] = field(default_factory=list)
+    plates: list[Plate] = field(default_factory=list)
     cost: float | None = None
 
     @property
     def ok(self) -> bool:
         return not self.errors
 
+    # Single-piece shortcuts (older code and tests)
+    @property
+    def model(self) -> ModelInfo | None:
+        return self.pieces[0].model if self.pieces else None
+
+    @property
+    def slice(self) -> SliceResult | None:
+        return self.plates[0].result if self.plates and self.plates[0].result else None
+
+    @property
+    def sliced(self) -> bool:
+        return bool(self.plates) and all(p.result for p in self.plates)
+
+    @property
+    def print_time_s(self) -> int | None:
+        ts = [p.result.print_time_s for p in self.plates if p.result]
+        return sum(ts) if ts and None not in ts else None
+
+    @property
+    def filament_g(self) -> float | None:
+        gs = [p.result.filament_g for p in self.plates if p.result]
+        return round(sum(gs), 2) if gs and None not in gs else None
+
     @property
     def gcode_name(self) -> str:
+        return self.plate_name(0)
+
+    def plate_name(self, i: int) -> str:
         pid = self.part.part_id if self.part else "part"
-        return f"{pid}_{self.request.material}_{self.folder.name[:13]}.gcode"
+        tail = f"_plate{i + 1}of{len(self.plates)}" if len(self.plates) > 1 else ""
+        return f"{pid}_{self.request.material}_{self.folder.name[:13]}{tail}.gcode"
+
+    def zip_all(self) -> Path:
+        z = self.folder / f"{self.part.part_id}_all_plates.zip"
+        with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
+            for p in self.plates:
+                if p.result:
+                    zf.write(p.result.gcode, p.result.gcode.name)
+        return z
 
 
 def _new_folder(part_id: str) -> Path:
@@ -68,12 +125,14 @@ def _log(job: Job) -> None:
     info = {
         "request": asdict(job.request),
         "final_params": job.params,
+        "files": job.files,
         "errors": job.errors,
         "warnings": job.warnings,
-        "model": {"size_mm": job.model.size_mm, "watertight": job.model.watertight,
-                  "volume_cm3": job.model.volume_cm3} if job.model else None,
-        "slice": {"print_time_s": job.slice.print_time_s, "filament_g": job.slice.filament_g,
-                  "filament_m": job.slice.filament_m} if job.slice else None,
+        "pieces": [{"file": p.rel, "count": p.count, "size_mm": p.model.size_mm,
+                    "watertight": p.model.watertight} for p in job.pieces],
+        "plates": [{"pieces": pl.labels,
+                    "print_time_s": pl.result.print_time_s if pl.result else None,
+                    "filament_g": pl.result.filament_g if pl.result else None} for pl in job.plates],
         "cost": job.cost,
         "slicer": settings()["slicer"]["backend"],
         "saved_at": datetime.now().isoformat(timespec="seconds"),
@@ -81,20 +140,28 @@ def _log(job: Job) -> None:
     (job.folder / "job.json").write_text(json.dumps(info, indent=2, default=str), encoding="utf-8")
 
 
+def _stl_name(rel: str) -> str:
+    return re.sub(r"[^\w.-]+", "_", Path(rel).with_suffix("").as_posix()) + ".stl"
+
+
 def prepare(req: JobRequest, parts: list[Part]) -> Job:
     part = get_part(parts, req.part_id)
     job = Job(request=req, folder=_new_folder(req.part_id or "unknown"), part=part)
-    chk = check_request(part, req.params, req.material, req.strength)
+    chk = check_request(part, req.params, req.material, req.strength, req.files)
     job.errors += chk.errors
     job.warnings += chk.warnings
-    job.params = chk.params
+    job.params, job.files = chk.params, chk.files
     if job.ok:
         try:
-            job.model = build_model(part, job.params, job.folder / "model.stl")
-            job.errors += check_fits(job.model.size_mm)
-            if not job.model.watertight:
-                job.warnings.append("The 3D model has small holes. It will probably still print, "
-                                    "but check the first layers.")
+            for rel, n in job.files.items():
+                mf = part.file(rel)
+                model = build_piece(part, mf, job.params, job.folder / "pieces" / _stl_name(rel))
+                errs = check_fits(model.size_mm)
+                job.errors += [f"{mf.label}: {e}" for e in errs] if len(job.files) > 1 else errs
+                if not model.watertight:
+                    job.warnings.append(f"{mf.label}: the 3D model has small holes. It will probably "
+                                        "still print, but check the first layers.")
+                job.pieces.append(Piece(rel, mf.label, n, model))
         except CadError as e:
             job.errors.append(str(e))
         except Exception:
@@ -104,8 +171,49 @@ def prepare(req: JobRequest, parts: list[Part]) -> Job:
     return job
 
 
+def plan_plates(pieces: list[Piece]) -> list[Plate]:
+    """Shelf-pack every copy's footprint onto as few beds as possible.
+
+    Deliberately simple and a little cautious (bounding boxes + gaps), so anything it puts
+    on one plate really fits; the slicer then does the exact arrangement.
+    """
+    p = settings()["printer"]
+    W = p["bed_x_mm"] - 2 * p["margin_mm"]
+    D = p["bed_y_mm"] - 2 * p["margin_mm"]
+    items = []
+    for pc in pieces:
+        x, y, _ = pc.model.size_mm
+        w, d = max(x, y), min(x, y)
+        if w > W:  # long piece: try it turned
+            w, d = d, w
+        items += [(w, d, pc)] * pc.count
+    items.sort(key=lambda t: t[1], reverse=True)
+
+    plates: list[dict] = []   # {"shelves": [[y, height, used_x]], "used_y": float, "items": []}
+    for w, d, pc in items:
+        placed = False
+        for pl in plates:
+            for sh in pl["shelves"]:
+                if d <= sh[1] and sh[2] + w <= W:
+                    sh[2] += w + PLATE_GAP_MM
+                    pl["items"].append(pc)
+                    placed = True
+                    break
+            if not placed and pl["used_y"] + d <= D:
+                pl["shelves"].append([pl["used_y"], d, w + PLATE_GAP_MM])
+                pl["used_y"] += d + PLATE_GAP_MM
+                pl["items"].append(pc)
+                placed = True
+            if placed:
+                break
+        if not placed:
+            plates.append({"shelves": [[0, d, w + PLATE_GAP_MM]], "used_y": d + PLATE_GAP_MM, "items": [pc]})
+    return [Plate(stls=[pc.model.stl for pc in pl["items"]], labels=[pc.label for pc in pl["items"]])
+            for pl in plates]
+
+
 def make_gcode(job: Job) -> Job:
-    if not job.ok or job.model is None:
+    if not job.ok or not job.pieces:
         return job
     s = settings()
     profiles = SliceProfiles(
@@ -116,20 +224,29 @@ def make_gcode(job: Job) -> Job:
         strength_name=job.request.strength,
     )
     center = (s["printer"]["bed_x_mm"] / 2, s["printer"]["bed_y_mm"] / 2)
-    out = job.folder / job.gcode_name
+    job.plates = plan_plates(job.pieces)
     try:
-        job.slice = get_slicer().slice(job.model.stl, out, profiles, center)
         from .slicers.base import prepend_header
 
-        prepend_header(out, [
-            "Hope Arising 3D Print Shop",
-            f"Part: {job.part.name}  Settings: {json.dumps(job.params)}",
-            f"Material: {job.request.material}  Strength: {job.request.strength}",
-            f"Credit: {job.part.credit}",
-        ])
-        if job.slice.filament_g is not None:
+        slicer = get_slicer()
+        for i, plate in enumerate(job.plates):
+            out = job.folder / job.plate_name(i)
+            plate.result = slicer.slice(plate.stls, out, profiles, center)
+            counts = {}
+            for lb in plate.labels:
+                counts[lb] = counts.get(lb, 0) + 1
+            prepend_header(out, [
+                "Hope Arising 3D Print Shop",
+                f"Part: {job.part.name}"
+                + (f"  (plate {i + 1} of {len(job.plates)})" if len(job.plates) > 1 else ""),
+                "Pieces: " + ", ".join(f"{n} x {lb}" for lb, n in counts.items()),
+                f"Settings: {json.dumps(job.params)}",
+                f"Material: {job.request.material}  Strength: {job.request.strength}",
+                f"Credit: {job.part.credit}",
+            ])
+        if job.filament_g is not None:
             price = s["materials"][job.request.material].get("price_per_kg", 0)
-            job.cost = round(job.slice.filament_g / 1000 * price, 2)
+            job.cost = round(job.filament_g / 1000 * price, 2)
     except SlicerError as e:
         job.errors.append(str(e))
     except Exception:

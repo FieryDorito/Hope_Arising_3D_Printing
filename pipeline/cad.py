@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
-from .library import Part
+from .library import ModelFile, Part
 
 
 class CadError(Exception):
@@ -31,7 +31,10 @@ class ModelInfo:
 
 
 def load_mesh(model_file: Path) -> trimesh.Trimesh:
-    mesh = trimesh.load(model_file, force="mesh")
+    try:
+        mesh = trimesh.load(model_file, force="mesh")
+    except Exception as e:
+        raise CadError(f"Could not read the 3D file {model_file.name}.") from e
     if not isinstance(mesh, trimesh.Trimesh) or mesh.is_empty:
         raise CadError(f"Could not read the 3D file {model_file.name}.")
     return mesh
@@ -52,28 +55,28 @@ def _scad_value(v) -> str:
     return '"' + str(v).replace('"', '\\"') + '"'
 
 
-def build_model(part: Part, params: dict, out_stl: Path) -> ModelInfo:
+def build_piece(part: Part, mf: ModelFile, params: dict, out_stl: Path) -> ModelInfo:
+    """Turn one model file of a part into a ready-to-slice STL."""
     out_stl.parent.mkdir(parents=True, exist_ok=True)
 
-    if part.kind == "missing":
-        raise CadError(f"No model file for {part.name} yet.")
-
-    if part.kind == "scad":
+    if mf.kind == "scad":
         cmd = [_openscad_exe(), "-o", str(out_stl)]
         for p in part.params:
+            if p.name == "scale_percent":
+                continue
             cmd += ["-D", f"{p.name}={_scad_value(params.get(p.name, p.default))}"]
-        cmd.append(str(part.model_file))
+        cmd.append(str(mf.path))
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if r.returncode != 0 or not out_stl.exists():
-            raise CadError(f"OpenSCAD failed for {part.name}:\n{r.stderr[-800:]}")
+            raise CadError(f"OpenSCAD failed for {mf.label}:\n{r.stderr[-800:]}")
         mesh = load_mesh(out_stl)
     else:
-        mesh = load_mesh(part.model_file)
+        mesh = load_mesh(mf.path)
         scale = float(params.get("scale_percent", 100)) / 100.0
         if scale != 1.0:
             mesh.apply_scale(scale)
 
-    # Sit the part on the bed and centre it at the origin; the slicer re-centres on the bed.
+    # Sit the piece on the bed and centre it at the origin; the slicer places it on the bed.
     lo, hi = mesh.bounds
     mesh.apply_translation([-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]])
 
@@ -89,6 +92,14 @@ def build_model(part: Part, params: dict, out_stl: Path) -> ModelInfo:
         watertight=bool(mesh.is_watertight),
         volume_cm3=round(float(vol), 1),
     )
+
+
+def build_model(part: Part, params: dict, out_stl: Path) -> ModelInfo:
+    """Single-file shortcut: builds the part's default (first) file."""
+    if not part.files:
+        raise CadError(f"No model file for {part.name} yet.")
+    rel = next(iter(part.default_selection()))
+    return build_piece(part, part.file(rel), params, out_stl)
 
 
 # ---------------------------------------------------------------- pictures

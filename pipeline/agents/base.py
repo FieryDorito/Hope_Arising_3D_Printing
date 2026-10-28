@@ -25,6 +25,7 @@ class Suggestion:
     strength: str | None = None
     explanation: str = ""            # one or two plain sentences for the operator
     question: str = ""               # what to ask the customer, if the request is unclear
+    options: list[str] = field(default_factory=list)  # labels of the files/pieces to print
     raw: dict = field(default_factory=dict)
 
 
@@ -48,6 +49,8 @@ Rules:
 - If the request is too unclear to choose sizes, still pick the closest part, keep
   default sizes, and write one short question the worker should ask the customer.
 - Choose material and strength using the notes given.
+- Some parts have several files ("options"): pieces of one product or different versions.
+  Return the labels of the ones to print in "options" (leave empty to use the defaults).
 - Write the explanation in short, simple English (one or two sentences)."""
 
 
@@ -63,6 +66,12 @@ def library_brief(parts: list[Part]) -> str:
             item["description"] = p.description
         if p.base_size_mm:
             item["base_size_mm_xyz"] = p.base_size_mm
+        if len(p.files) > 1:
+            item["options"] = {
+                "choose": "exactly one" if p.choose == "one" else "any combination",
+                "list": [{"label": f.label, **({"size_mm_xyz": f.size_mm} if f.size_mm else {}),
+                          **({"default": True} if f.default else {})} for f in p.files],
+            }
         item["settings"] = [
             {k: v for k, v in sp.to_dict().items() if k in ("name", "label", "unit", "min", "max", "default", "help") and v != ""}
             for sp in p.params

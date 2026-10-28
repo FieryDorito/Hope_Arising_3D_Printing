@@ -10,19 +10,23 @@ from dataclasses import dataclass, field
 from .config import settings
 from .library import Part
 
+MAX_COPIES = 50
+
 
 @dataclass
 class Check:
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     params: dict = field(default_factory=dict)  # cleaned values
+    files: dict = field(default_factory=dict)   # rel path -> how many
 
     @property
     def ok(self) -> bool:
         return not self.errors
 
 
-def check_request(part: Part | None, params: dict, material: str, strength: str) -> Check:
+def check_request(part: Part | None, params: dict, material: str, strength: str,
+                  files: dict[str, int] | None = None) -> Check:
     s = settings()
     c = Check()
     if part is None:
@@ -30,7 +34,7 @@ def check_request(part: Part | None, params: dict, material: str, strength: str)
         return c
     if not part.commercial_ok:
         c.errors.append(f"{part.name} cannot be sold — its license does not allow commercial use.")
-    if part.model_file is None:
+    if not part.files:
         c.errors.append(f"{part.name} has no 3D model file yet. Ask a maintainer to add it.")
     if material not in s["materials"]:
         c.errors.append(f"Unknown material '{material}'.")
@@ -55,10 +59,33 @@ def check_request(part: Part | None, params: dict, material: str, strength: str)
     if unknown:
         c.warnings.append(f"Ignored settings this part doesn't have: {', '.join(sorted(unknown))}.")
 
-    # Size check before CAD, for mesh parts where we already know the size.
-    if part.kind == "mesh" and part.base_size_mm and "scale_percent" in c.params:
-        k = c.params["scale_percent"] / 100
-        c.errors += check_fits([d * k for d in part.base_size_mm])
+    # Which files (pieces/options) and how many of each.
+    chosen = files if files else part.default_selection()
+    for rel, n in chosen.items():
+        mf = part.file(rel)
+        if mf is None:
+            c.errors.append(f"'{rel}' is not one of this part's files.")
+            continue
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            n = 0
+        if n < 0 or n > MAX_COPIES:
+            c.errors.append(f"How many '{mf.label}': choose 0 to {MAX_COPIES}.")
+        elif n > 0:
+            c.files[rel] = n
+    if part.files and not c.files and not c.errors:
+        c.errors.append("Choose at least one piece to print.")
+    if part.choose == "one" and len(c.files) > 1:
+        c.errors.append("This part's options are alternatives — choose only one.")
+
+    # Size check before CAD, for mesh files where we already know the size.
+    k = c.params.get("scale_percent", 100) / 100
+    for rel in c.files:
+        mf = part.file(rel)
+        if mf and mf.kind == "mesh" and mf.size_mm:
+            c.errors += [f"{mf.label}: {e}" if len(c.files) > 1 else e
+                         for e in check_fits([d * k for d in mf.size_mm])]
     return c
 
 

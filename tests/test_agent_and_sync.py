@@ -1,7 +1,7 @@
 """AI agent (with a fake Claude client, no API key needed) and sheet sync."""
 from types import SimpleNamespace
 
-from pipeline import library
+from pipeline import library, sheet
 from pipeline.agents.claude_agent import ClaudeAgent
 from pipeline.validate import check_request
 
@@ -40,7 +40,7 @@ def test_sync_keeps_old_copy_when_sheet_private(tmp_path, monkeypatch):
     target.write_text("part_name\nOld Part\n", encoding="utf-8")
     monkeypatch.setitem(library.settings()["library"], "catalog_csv", str(target))
     resp = SimpleNamespace(content=b"<html>sign in</html>", raise_for_status=lambda: None)
-    monkeypatch.setattr(library.requests, "get", lambda *a, **k: resp)
+    monkeypatch.setattr(sheet.requests, "get", lambda *a, **k: resp)
     ok, msg = library.sync_from_sheet()
     assert not ok and "shared" in msg
     assert "Old Part" in target.read_text()
@@ -52,7 +52,7 @@ def test_sync_updates(tmp_path, monkeypatch):
     monkeypatch.setitem(library.settings()["library"], "catalog_csv", str(target))
     resp = SimpleNamespace(content=b"part_name,category\nNew A,Plumbing\nNew B,Utility\n",
                            raise_for_status=lambda: None)
-    monkeypatch.setattr(library.requests, "get", lambda *a, **k: resp)
+    monkeypatch.setattr(sheet.requests, "get", lambda *a, **k: resp)
     ok, msg = library.sync_from_sheet()
-    assert ok and "2 parts" in msg and "New A" in target.read_text()
+    assert ok and "2 new" in msg and "1 removed" in msg and "New A" in target.read_text()
     assert (tmp_path / "catalog.csv.bak").exists()
