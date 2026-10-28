@@ -1,0 +1,17 @@
+# Set up in the app (Library setup). Safe to edit by hand.
+choose: any
+files:
+  outer-part.stl:
+    label: Outer dish
+    default: true
+    count: 1
+  inner-part.stl:
+    label: Inner tray
+    default: true
+    count: 1
+  holder-screen.stl:
+    label: Drain screen
+    default: true
+    count: 1
+description: 'Soap dish in three pieces: outer dish, inner tray and a drain screen
+  that keeps soap dry.'

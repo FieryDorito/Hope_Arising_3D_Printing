@@ -35,7 +35,7 @@ if not exist .venv\Scripts\python.exe (
 
 REM 3. Install or repair the add-ons whenever any are missing (ready-made files only, no compiling)
 echo [3/4] Checking add-ons (the first check after a restart can take a minute)...
-.venv\Scripts\python.exe -c "import streamlit, trimesh, plotly, yaml, anthropic" <nul >nul 2>&1
+.venv\Scripts\python.exe -c "import streamlit, trimesh, plotly, yaml, anthropic, fast_simplification" <nul >nul 2>&1
 if errorlevel 1 (
   echo Installing what the app needs. This takes a few minutes, keep this window open...
   .venv\Scripts\python.exe -m pip install --disable-pip-version-check --only-binary=:all: -r requirements.txt

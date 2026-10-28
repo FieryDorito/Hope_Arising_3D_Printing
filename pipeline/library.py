@@ -35,6 +35,7 @@ PDF_EXTS = {".pdf"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 SKIP_NAMES = {"put-stl-here.txt", "part.yaml", "license.txt", "licence.txt", ".gitkeep", ".ds_store"}
 SKIP_DIRS = {".thumbs", "__macosx", ".git"}
+SOURCE_EXTS = {".fcstd", ".step", ".stp", ".f3d", ".skp", ".blend", ".iges", ".igs", ".sldprt", ".dwg"}
 THUMBS = ".thumbs"
 
 # Fixes for spelling variants in the sheet -> standard category names (Living Table 15.1).
@@ -77,10 +78,16 @@ class ParamSpec:
     unit: str = "mm"
     step: float = 1.0
     help: str = ""
-    kind: str = "number"  # number | int | bool
+    kind: str = "number"  # number | int | bool | choice
+    choices: list | None = None   # [[value, label], ...] for kind=choice
+    group: str = ""
+    basic: bool = True            # False = shown under "More settings"
 
     def to_dict(self) -> dict:
         return self.__dict__.copy()
+
+    def choice_label(self, value) -> str:
+        return next((lab for v, lab in (self.choices or []) if float(v) == float(value)), str(value))
 
 
 SCALE_PARAM = ParamSpec(
@@ -134,6 +141,7 @@ class Part:
     params: list[ParamSpec] = field(default_factory=list)
     description: str = ""
     configured: bool = False     # part.yaml has a files: section (set up by a maintainer)
+    sources: list[Path] = field(default_factory=list)  # CAD files the app can't print from
 
     # -------------------------------------------------- convenience
     @property
@@ -167,6 +175,8 @@ class Part:
         """Plain-language reason a part can or can't be printed."""
         if not self.commercial_ok:
             return "Not allowed for sale (license)"
+        if not self.files and self.sources:
+            return f"Only a {self.sources[0].suffix[1:].upper()} file - needs an STL"
         if not self.files:
             return "Model file not added yet"
         return "Ready"
@@ -229,11 +239,11 @@ def _load_part_yaml(folder: Path) -> dict:
         return yaml.safe_load(fh) or {}
 
 
-def scan_folder(folder: Path) -> tuple[list[Path], list[Path]]:
-    """Return (model files, doc files) anywhere under the part folder."""
-    models, docs = [], []
+def scan_folder(folder: Path) -> tuple[list[Path], list[Path], list[Path]]:
+    """Return (model files, doc files, unusable CAD source files) anywhere under the part folder."""
+    models, docs, sources = [], [], []
     if not folder.is_dir():
-        return models, docs
+        return models, docs, sources
     for p in sorted(folder.rglob("*"), key=lambda q: _natural_key(q.relative_to(folder).as_posix())):
         rel_parts = p.relative_to(folder).parts
         if any(part.lower() in SKIP_DIRS or part.startswith(".") for part in rel_parts[:-1]):
@@ -245,7 +255,9 @@ def scan_folder(folder: Path) -> tuple[list[Path], list[Path]]:
             models.append(p)
         elif ext in TEXT_EXTS | PDF_EXTS | IMAGE_EXTS:
             docs.append(p)
-    return models, docs
+        elif ext in SOURCE_EXTS:
+            sources.append(p)
+    return models, docs, sources
 
 
 def _sizes_cache(folder: Path) -> tuple[dict, Path]:
@@ -294,7 +306,7 @@ def build_part(row: dict, models_dir: Path) -> Part:
     from .intake import unpack_zips  # unpack anything dropped in as a .zip
 
     unpack_zips(folder)
-    model_paths, doc_paths = scan_folder(folder)
+    model_paths, doc_paths, part.sources = scan_folder(folder)
 
     file_meta = meta.get("files") or {}
     part.configured = bool(file_meta)
@@ -310,6 +322,9 @@ def build_part(row: dict, models_dir: Path) -> Part:
         if mf.kind == "mesh":
             mf.size_mm = _mesh_size(p, cache)
         part.files.append(mf)
+    if file_meta:  # show files in the order the maintainer set up
+        order = {rel: i for i, rel in enumerate(file_meta)}
+        part.files.sort(key=lambda f: order.get(f.rel, len(order)))
     if len(cache) != n_cache:
         try:
             cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -330,8 +345,19 @@ def build_part(row: dict, models_dir: Path) -> Part:
         kind = "image" if ext in IMAGE_EXTS else "pdf" if ext in PDF_EXTS else "text"
         part.docs.append(Doc(path=p, kind=kind, title=nice_label(p.stem)))
 
-    if any(f.kind == "scad" for f in part.files):
-        part.params += [ParamSpec(**p) for p in meta.get("params", [])]
+    scad = [f for f in part.files if f.kind == "scad"]
+    if scad:
+        if meta.get("params"):
+            part.params += [ParamSpec(**p) for p in meta["params"]]
+        else:  # read the designer's Customizer settings from the .scad file
+            from .scad_params import read_params
+
+            seen_names = set()
+            for f in scad:
+                for p in read_params(f.path):
+                    if p["name"] not in seen_names:
+                        seen_names.add(p["name"])
+                        part.params.append(ParamSpec(**p))
     if any(f.kind == "mesh" for f in part.files):
         part.params.append(ParamSpec(**{**SCALE_PARAM.to_dict(), **(meta.get("scale") or {})}))
     return part

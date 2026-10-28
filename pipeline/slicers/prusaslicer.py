@@ -46,6 +46,7 @@ class PrusaSlicer(Slicer):
             "--load", str(profiles.material),
             "--load", str(profiles.strength),
             "--center", f"{bed_center[0]:g},{bed_center[1]:g}",
+            *(["--merge"] if len(as_list(stls)) > 1 else []),  # all inputs on ONE plate (else the last wins)
             "--output", str(out_gcode),
             *[str(p) for p in as_list(stls)],   # several inputs are arranged on the plate
         ]

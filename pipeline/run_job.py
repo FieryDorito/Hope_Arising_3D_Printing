@@ -10,6 +10,7 @@ the STLs, the G-code and logs, so problems can be reproduced later.
 from __future__ import annotations
 
 import json
+import math
 import re
 import traceback
 import zipfile
@@ -46,10 +47,22 @@ class Piece:
 
 
 @dataclass
+class Placement:
+    stl: Path
+    label: str
+    x: float          # lower-left corner on the plate (mm)
+    y: float
+    turned: bool      # rotated 90 degrees to fit better
+
+
+@dataclass
 class Plate:
-    stls: list[Path]                     # one entry per copy
-    labels: list[str]
+    placements: list[Placement] = field(default_factory=list)
     result: SliceResult | None = None
+
+    @property
+    def labels(self) -> list[str]:
+        return [pl.label for pl in self.placements]
 
 
 @dataclass
@@ -172,10 +185,11 @@ def prepare(req: JobRequest, parts: list[Part]) -> Job:
 
 
 def plan_plates(pieces: list[Piece]) -> list[Plate]:
-    """Shelf-pack every copy's footprint onto as few beds as possible.
+    """Shelf-pack every copy's footprint onto as few beds as possible, and record where.
 
-    Deliberately simple and a little cautious (bounding boxes + gaps), so anything it puts
-    on one plate really fits; the slicer then does the exact arrangement.
+    Deliberately simple and a little cautious (bounding boxes + gaps). The app places the
+    pieces itself and hands the slicer ONE ready-arranged model per plate, so what you
+    see planned here is exactly what prints.
     """
     p = settings()["printer"]
     W = p["bed_x_mm"] - 2 * p["margin_mm"]
@@ -183,33 +197,53 @@ def plan_plates(pieces: list[Piece]) -> list[Plate]:
     items = []
     for pc in pieces:
         x, y, _ = pc.model.size_mm
-        w, d = max(x, y), min(x, y)
-        if w > W:  # long piece: try it turned
-            w, d = d, w
-        items += [(w, d, pc)] * pc.count
+        turned = y > x                      # long side along X packs shelves better
+        w, d = (y, x) if turned else (x, y)
+        if w > W:                           # too long that way: turn it back
+            turned, w, d = not turned, d, w
+        items += [(w, d, turned, pc)] * pc.count
     items.sort(key=lambda t: t[1], reverse=True)
 
-    plates: list[dict] = []   # {"shelves": [[y, height, used_x]], "used_y": float, "items": []}
-    for w, d, pc in items:
-        placed = False
+    plates: list[dict] = []   # {"shelves": [[y, height, next_x]], "next_y": float, "plate": Plate}
+    for w, d, turned, pc in items:
+        spot = None
         for pl in plates:
             for sh in pl["shelves"]:
                 if d <= sh[1] and sh[2] + w <= W:
+                    spot = (pl, sh[2], sh[0])
                     sh[2] += w + PLATE_GAP_MM
-                    pl["items"].append(pc)
-                    placed = True
                     break
-            if not placed and pl["used_y"] + d <= D:
-                pl["shelves"].append([pl["used_y"], d, w + PLATE_GAP_MM])
-                pl["used_y"] += d + PLATE_GAP_MM
-                pl["items"].append(pc)
-                placed = True
-            if placed:
+            if spot is None and pl["next_y"] + d <= D:
+                pl["shelves"].append([pl["next_y"], d, w + PLATE_GAP_MM])
+                spot = (pl, 0.0, pl["next_y"])
+                pl["next_y"] += d + PLATE_GAP_MM
+            if spot:
                 break
-        if not placed:
-            plates.append({"shelves": [[0, d, w + PLATE_GAP_MM]], "used_y": d + PLATE_GAP_MM, "items": [pc]})
-    return [Plate(stls=[pc.model.stl for pc in pl["items"]], labels=[pc.label for pc in pl["items"]])
-            for pl in plates]
+        if spot is None:
+            pl = {"shelves": [[0.0, d, w + PLATE_GAP_MM]], "next_y": d + PLATE_GAP_MM, "plate": Plate()}
+            plates.append(pl)
+            spot = (pl, 0.0, 0.0)
+        pl, px, py = spot
+        pl["plate"].placements.append(Placement(pc.model.stl, pc.label, px, py, turned))
+    return [pl["plate"] for pl in plates]
+
+
+def build_plate_stl(plate: Plate, out: Path) -> Path:
+    """Combine a plate's pieces, already placed, into one STL for the slicer."""
+    import trimesh
+
+    cache, meshes = {}, []
+    for pl in plate.placements:
+        if pl.stl not in cache:
+            cache[pl.stl] = trimesh.load(pl.stl, force="mesh")
+        m = cache[pl.stl].copy()
+        if pl.turned:
+            m.apply_transform(trimesh.transformations.rotation_matrix(math.pi / 2, [0, 0, 1]))
+        lo = m.bounds[0]
+        m.apply_translation([pl.x - lo[0], pl.y - lo[1], -lo[2]])
+        meshes.append(m)
+    trimesh.util.concatenate(meshes).export(out)
+    return out
 
 
 def make_gcode(job: Job) -> Job:
@@ -231,7 +265,8 @@ def make_gcode(job: Job) -> Job:
         slicer = get_slicer()
         for i, plate in enumerate(job.plates):
             out = job.folder / job.plate_name(i)
-            plate.result = slicer.slice(plate.stls, out, profiles, center)
+            plate_stl = build_plate_stl(plate, job.folder / f"plate{i + 1}.stl")
+            plate.result = slicer.slice([plate_stl], out, profiles, center)
             counts = {}
             for lb in plate.labels:
                 counts[lb] = counts.get(lb, 0) + 1

@@ -199,6 +199,19 @@ def show_docs(part: Part) -> None:
             st.markdown(f"[Original page ↗]({part.link})")
 
 
+def param_input(part: Part, p):
+    key = f"p_{part.part_id}_{p.name}"
+    ss.setdefault(key, float(p.default))
+    if p.kind == "choice":
+        values = [float(v) for v, _ in p.choices]
+        if ss[key] not in values:
+            ss[key] = values[0]
+        return st.selectbox(p.label, values, key=key, format_func=p.choice_label, help=p.help or None)
+    unit = f" ({p.unit})" if p.unit else ""
+    return st.number_input(f"{p.label}{unit}", min_value=float(p.min), max_value=float(p.max),
+                           step=float(p.step), key=key, help=p.help or None)
+
+
 def options_picker(part: Part) -> dict[str, int]:
     """Show the part's files as choices; return {rel: count}."""
     sk, ck = sel_keys(part)
@@ -309,12 +322,15 @@ def page_make_print() -> None:
     with left:
         files = options_picker(part)
         params = {}
-        for p in part.params:
-            key = f"p_{part.part_id}_{p.name}"
-            ss.setdefault(key, float(p.default))
-            params[p.name] = st.number_input(
-                f"{p.label} ({p.unit})", min_value=float(p.min), max_value=float(p.max),
-                step=float(p.step), key=key, help=p.help or None)
+        basic = [p for p in part.params if p.basic]
+        more = [p for p in part.params if not p.basic]
+        for p in basic:
+            params[p.name] = param_input(part, p)
+        if more:
+            with st.expander(f"More settings ({len(more)})"):
+                st.caption("The designer's other settings. The starting values are usually right.")
+                for p in more:
+                    params[p.name] = param_input(part, p)
         k = params.get("scale_percent", 100) / 100
         sizes = [(part.file(r).label, part.file(r).size_mm) for r in files if part.file(r).size_mm]
         for label, (x, y, z) in sizes:
@@ -454,6 +470,10 @@ def page_library_setup() -> None:
                 st.info("The license does not allow selling this part, so it is hidden from shop workers.")
                 continue
 
+            if p.sources and not p.files:
+                st.warning(f"Found {', '.join(x.name for x in p.sources)} — the app can't print from "
+                           f"{p.sources[0].suffix[1:].upper()} files. Download the STL from the page above, or "
+                           "open the file in its CAD program and export an STL, then add it here.")
             upload_box(p, "lib")
 
             if p.files:

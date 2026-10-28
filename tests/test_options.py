@@ -97,6 +97,10 @@ def test_several_pieces_one_plate(tmp_path):
     assert len(job.plates) == 1 and job.slice.filament_g > 0
     head = job.slice.gcode.read_text()[:1500]
     assert "1 x Body v2" in head and "2 x Cap" in head
+    # Every piece must really be in the file: plastic used together == pieces added up.
+    one = {f.rel: run_job(JobRequest("salt-shaker", {}, files={f.rel: 1}), parts).filament_g for f in p.files}
+    expected = one[p.files[0].rel] + 2 * one[p.files[1].rel]
+    assert abs(job.filament_g - expected) / expected < 0.1, (job.filament_g, expected)
 
 
 def test_too_many_for_one_bed_makes_more_plates(tmp_path):

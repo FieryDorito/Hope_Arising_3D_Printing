@@ -1,0 +1,3 @@
+# Settings are read from the .scad file automatically. Add 'params:' here to override them.
+description: Door/cabinet butt hinge printed in one piece with a fused pin. Width,
+  leaf height and thickness are adjustable; screw holes included.
