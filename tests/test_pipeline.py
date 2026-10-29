@@ -27,7 +27,7 @@ def test_validation_blocks_bad_input(test_library):
     assert not check_request(locked, {}, "PLA", "Normal").ok
     hook = get_part(test_library, "test-hook")
     assert check_request(hook, {"scale_percent": 400}, "PLA", "Normal").ok      # 120x132x240 fits
-    hook.base_size_mm = (30.0, 33.0, 70.0)
+    hook.files[0].size_mm = (30.0, 33.0, 70.0)
     assert not check_request(hook, {"scale_percent": 400}, "PLA", "Normal").ok  # 280 mm: too tall
 
 

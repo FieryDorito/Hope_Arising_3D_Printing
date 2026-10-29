@@ -1,0 +1,4 @@
+Put the 3D file for "Spoon Holder" in this folder (one .stl file).
+Download it from: https://www.printables.com/model/708270-spoon-holder
+If it came as a .zip, open the zip and drag just the .stl here.
+Then you can delete this note.

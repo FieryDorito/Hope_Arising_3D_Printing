@@ -34,9 +34,14 @@ class SliceProfiles:
 class Slicer:
     name = "base"
 
-    def slice(self, stl: Path, out_gcode: Path, profiles: SliceProfiles,
+    def slice(self, stls: Path | list[Path], out_gcode: Path, profiles: SliceProfiles,
               bed_center: tuple[float, float]) -> SliceResult:
+        """Slice one or more STLs onto ONE plate (a file listed twice is printed twice)."""
         raise NotImplementedError
+
+
+def as_list(stls) -> list[Path]:
+    return [stls] if isinstance(stls, Path) else list(stls)
 
 
 # ------------------------------------------------------------------ helpers

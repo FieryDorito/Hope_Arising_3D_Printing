@@ -1,0 +1,26 @@
+# Set up in the app (Library setup). Safe to edit by hand.
+choose: any
+files:
+  spodní část.stl:
+    label: Bottom (container)
+    default: true
+    count: 1
+  horní část.stl:
+    label: Screw top – short
+    default: true
+    count: 1
+  horní část 2.stl:
+    label: Screw top – tall
+    default: false
+    count: 1
+  sítko 2mm.stl:
+    label: Sieve insert – 2 mm holes (salt)
+    default: true
+    count: 1
+  sítko 5mm.stl:
+    label: Sieve insert – 5 mm holes (pepper, herbs)
+    default: false
+    count: 1
+description: 'Small travel salt shaker: a bottom container, a screw top (short or
+  tall) and a sieve insert with 2 mm or 5 mm holes. Designer printed it at 0.15 mm
+  layers in PLA without supports.'

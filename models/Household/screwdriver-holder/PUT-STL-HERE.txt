@@ -1,0 +1,4 @@
+Put the 3D file for "Screwdriver holder" in this folder (one .stl file).
+Download it from: https://www.printables.com/model/1839211-basic-screwdriver-holder
+If it came as a .zip, open the zip and drag just the .stl here.
+Then you can delete this note.

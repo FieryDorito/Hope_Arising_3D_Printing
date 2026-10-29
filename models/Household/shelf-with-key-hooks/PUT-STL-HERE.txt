@@ -1,0 +1,4 @@
+Put the 3D file for "Shelf With Key Hooks" in this folder (one .stl file).
+Download it from: https://www.printables.com/model/1835691-not-an-ai-slop-shelf
+If it came as a .zip, open the zip and drag just the .stl here.
+Then you can delete this note.

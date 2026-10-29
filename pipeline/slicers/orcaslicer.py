@@ -14,7 +14,7 @@ import subprocess
 from pathlib import Path
 
 from ..config import path
-from .base import SliceProfiles, SliceResult, Slicer, SlicerError, read_stats
+from .base import SliceProfiles, SliceResult, Slicer, SlicerError, as_list, read_stats
 
 
 class OrcaSlicer(Slicer):
@@ -26,7 +26,7 @@ class OrcaSlicer(Slicer):
             raise SlicerError("OrcaSlicer is not installed on this computer.")
         self.timeout_s = timeout_s
 
-    def slice(self, stl: Path, out_gcode: Path, profiles: SliceProfiles,
+    def slice(self, stls: Path | list[Path], out_gcode: Path, profiles: SliceProfiles,
               bed_center: tuple[float, float]) -> SliceResult:
         d = path("config/orca")
         machine = d / "machine.json"
@@ -40,7 +40,7 @@ class OrcaSlicer(Slicer):
         cmd = [self.exe, "--slice", "0",
                "--load-settings", f"{machine};{process}",
                "--load-filaments", str(filament),
-               "--outputdir", str(out_dir), str(stl)]
+               "--outputdir", str(out_dir), *[str(p) for p in as_list(stls)]]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout_s)
         produced = sorted(out_dir.glob("*.gcode"), key=lambda p: p.stat().st_mtime)
         if r.returncode != 0 or not produced:

@@ -223,3 +223,4 @@ jobs/*
 !jobs/.gitkeep
 models/sources.csv.bak
 models/**/.thumb_src.stl
+models/**/.thumbs/

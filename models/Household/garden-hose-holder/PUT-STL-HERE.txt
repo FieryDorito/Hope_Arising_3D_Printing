@@ -1,0 +1,4 @@
+Put the 3D file for "garden hose holder" in this folder (one .stl file).
+Download it from: https://www.printables.com/model/1786545-strong-garden-hose-holder
+If it came as a .zip, open the zip and drag just the .stl here.
+Then you can delete this note.

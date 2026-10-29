@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .base import SliceProfiles, SliceResult, Slicer, SlicerError, read_stats
+from .base import SliceProfiles, SliceResult, Slicer, SlicerError, as_list, read_stats
 
 WINDOWS_GUESSES = [
     r"C:\Program Files\Prusa3D\PrusaSlicer\prusa-slicer-console.exe",
@@ -37,7 +37,7 @@ class PrusaSlicer(Slicer):
         self.exe = find_executable(executable)
         self.timeout_s = timeout_s
 
-    def slice(self, stl: Path, out_gcode: Path, profiles: SliceProfiles,
+    def slice(self, stls: Path | list[Path], out_gcode: Path, profiles: SliceProfiles,
               bed_center: tuple[float, float]) -> SliceResult:
         out_gcode.parent.mkdir(parents=True, exist_ok=True)
         cmd = [
@@ -46,8 +46,9 @@ class PrusaSlicer(Slicer):
             "--load", str(profiles.material),
             "--load", str(profiles.strength),
             "--center", f"{bed_center[0]:g},{bed_center[1]:g}",
+            *(["--merge"] if len(as_list(stls)) > 1 else []),  # all inputs on ONE plate (else the last wins)
             "--output", str(out_gcode),
-            str(stl),
+            *[str(p) for p in as_list(stls)],   # several inputs are arranged on the plate
         ]
         env = {**os.environ, "QT_QPA_PLATFORM": "offscreen"}
         try:
@@ -55,7 +56,7 @@ class PrusaSlicer(Slicer):
                                timeout=self.timeout_s, env=env)
         except subprocess.TimeoutExpired:
             raise SlicerError("Slicing took too long and was stopped.")
-        (out_gcode.parent / "slicer.log").write_text(
+        out_gcode.with_suffix(".log").write_text(
             " ".join(cmd) + "\n\n" + r.stdout + "\n" + r.stderr, encoding="utf-8")
         if r.returncode != 0 or not out_gcode.exists() or out_gcode.stat().st_size == 0:
             tail = (r.stderr or r.stdout)[-600:]

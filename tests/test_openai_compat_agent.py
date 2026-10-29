@@ -76,3 +76,16 @@ def test_provider_switch(monkeypatch):
     monkeypatch.setitem(a, "provider", "none")
     with pytest.raises(AgentError, match="turned off"):
         get_agent()
+
+
+def test_key_at_top_level_of_agent_is_used(monkeypatch):
+    a = agents.settings()["agent"]
+    monkeypatch.setitem(a, "api_key", "AIzaTopLevel")
+    agent = OpenAICompatAgent({**CFG, "api_key": ""})
+    assert agent.key == "AIzaTopLevel"
+
+
+def test_example_placeholder_is_not_a_key(monkeypatch):
+    monkeypatch.delitem(agents.settings()["agent"], "api_key", raising=False)
+    with pytest.raises(AgentError, match="settings.local"):
+        OpenAICompatAgent({**CFG, "api_key": "paste-your-Gemini-key-here"})

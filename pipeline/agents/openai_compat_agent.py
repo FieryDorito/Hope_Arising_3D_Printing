@@ -25,6 +25,22 @@ from .base import SYSTEM_PROMPT, Agent, AgentError, Suggestion, library_brief
 NO_MATCH = "NONE"
 
 
+def missing_key_hint() -> str:
+    """Say exactly why no key was found, so it can be fixed without a programmer."""
+    from ..config import CONFIG_DIR
+
+    local = CONFIG_DIR / "settings.local.yaml"
+    if not local.exists():
+        near = [f.name for f in CONFIG_DIR.glob("settings.local*") if f.name != "settings.local.example.yaml"]
+        if near:
+            return (f"Found '{near[0]}' in the config folder - rename it to exactly "
+                    "'settings.local.yaml'. Use 'Browse parts' for now.")
+        return ("There is no config/settings.local.yaml file yet - create it and paste the key in "
+                "(see settings.local.example.yaml). Use 'Browse parts' for now.")
+    return ("config/settings.local.yaml was found but has no key for this AI, or still has the "
+            "example text. Use 'Browse parts' for now.")
+
+
 def tool_schema(parts: list[Part]) -> dict:
     s = settings()
     ids = [p.part_id for p in parts if p.printable]
@@ -49,6 +65,8 @@ def tool_schema(parts: list[Part]) -> dict:
                     "strength": {"type": "string", "enum": list(s["strength"])},
                     "explanation": {"type": "string"},
                     "question_for_customer": {"type": "string"},
+                    "options": {"type": "array", "items": {"type": "string"},
+                                "description": "Labels of the part's files to print, if it has several."},
                 },
                 "required": ["part_id", "settings", "material", "strength", "explanation"],
             },
@@ -80,9 +98,12 @@ class OpenAICompatAgent(Agent):
         self.max_tokens = cfg.get("max_tokens")
         self.label = cfg.get("label", "AI helper")
         key_env = cfg.get("api_key_env", "")
-        self.key = cfg.get("api_key") or (os.environ.get(key_env, "") if key_env else "")
+        self.key = (cfg.get("api_key") or top.get("api_key")
+                    or (os.environ.get(key_env, "") if key_env else ""))
+        if self.key and ("paste-your" in self.key or self.key.endswith("...")):
+            self.key = ""
         if cfg.get("needs_key", True) and not self.key:
-            raise AgentError(f"{self.label} is not set up (no API key). Use 'Browse parts' instead.")
+            raise AgentError(f"{self.label} is not set up (no API key). {missing_key_hint()}")
         self._post = post or requests.post
 
     def suggest(self, request: str, parts: list[Part]) -> Suggestion:
@@ -138,5 +159,6 @@ class OpenAICompatAgent(Agent):
             strength=data.get("strength"),
             explanation=data.get("explanation", ""),
             question=data.get("question_for_customer", "") or "",
+            options=[str(o) for o in (data.get("options") or [])],
             raw=data,
         )
