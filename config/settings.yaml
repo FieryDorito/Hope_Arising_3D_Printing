@@ -51,7 +51,8 @@ agent:
   # Switching is just changing this word. Keys go in settings.local.yaml, never here.
   provider: gemini
   max_tokens: 1024
-  timeout_s: 60
+  timeout_s: 40          # one try
+  total_wait_s: 100      # all tries (retry + fallback model) together
   providers:
     gemini:
       # Free: get a key at https://aistudio.google.com/apikey (no credit card).
@@ -61,6 +62,8 @@ agent:
       label: Gemini
       base_url: https://generativelanguage.googleapis.com/v1beta/openai/
       model: gemini-3.8-flash
+      # Tried in order if the main model is busy or too slow (both free tier).
+      fallback_models: [gemini-3.5-flash-lite]
       api_key_env: GEMINI_API_KEY
     claude:
       # Paid (Anthropic API credits). Key from https://console.anthropic.com

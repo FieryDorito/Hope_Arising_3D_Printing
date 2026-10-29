@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
+from datetime import datetime
 
 import requests
 
@@ -23,6 +25,35 @@ from ..library import Part
 from .base import SYSTEM_PROMPT, Agent, AgentError, Suggestion, library_brief
 
 NO_MATCH = "NONE"
+
+
+def explain_network_error(label: str, err: Exception | None) -> str:
+    """Turn a connection failure into something a shop worker can act on."""
+    if isinstance(err, requests.exceptions.Timeout):
+        return (f"{label} took too long to answer — its servers may be busy. "
+                "Try again in a few minutes, or use 'Browse parts'.")
+    if isinstance(err, requests.exceptions.SSLError):
+        return (f"A secure connection to {label} was blocked. This often happens on school or work Wi-Fi "
+                "that filters traffic — try another network or a phone hotspot. Use 'Browse parts' for now.")
+    if isinstance(err, requests.exceptions.ProxyError):
+        return f"A proxy on this network blocked {label}. Try another network. Use 'Browse parts' for now."
+    if isinstance(err, requests.exceptions.ConnectionError):
+        return (f"This computer couldn't connect to {label}. Check that the internet is working "
+                "(open any website). Use 'Browse parts' for now.")
+    return f"{label} could not be reached. Use 'Browse parts' instead."
+
+
+def log_ai_error(label: str, model: str, err) -> None:
+    """Keep the technical details in jobs/ai_errors.log for whoever is maintaining the app."""
+    try:
+        from ..config import path
+
+        f = path(settings()["jobs_dir"]) / "ai_errors.log"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        with open(f, "a", encoding="utf-8") as fh:
+            fh.write(f"{datetime.now().isoformat(timespec='seconds')}  {label}  {model}  {err!r}\n")
+    except Exception:
+        pass
 
 
 def missing_key_hint() -> str:
@@ -105,6 +136,39 @@ class OpenAICompatAgent(Agent):
         if cfg.get("needs_key", True) and not self.key:
             raise AgentError(f"{self.label} is not set up (no API key). {missing_key_hint()}")
         self._post = post or requests.post
+        self._sleep = (lambda s: None) if post else time.sleep   # no waiting in tests
+        self.fallback_models = list(cfg.get("fallback_models") or [])
+        self.total_wait = top.get("total_wait_s", 100)   # give up after this, all tries together
+
+    def _send(self, body: dict, headers: dict):
+        """POST with one retry, then the fallback models. Raises AgentError with the real reason."""
+        url = self.base_url + "chat/completions"
+        models = [self.model] + [m for m in self.fallback_models if m != self.model]
+        last_err, r = None, None
+        deadline = time.monotonic() + self.total_wait
+        for model in models:
+            for attempt in range(2):
+                if time.monotonic() > deadline:
+                    break
+                try:
+                    r = self._post(url, json={**body, "model": model}, headers=headers, timeout=self.timeout)
+                except requests.RequestException as e:
+                    last_err = e
+                    log_ai_error(self.label, model, e)
+                    if isinstance(e, (requests.exceptions.SSLError, requests.exceptions.ProxyError)):
+                        break  # retrying won't help
+                    self._sleep(2 * (attempt + 1))
+                    continue
+                if r.status_code in (500, 502, 503, 504):
+                    log_ai_error(self.label, model, f"HTTP {r.status_code}: {r.text[:300]}")
+                    self._sleep(2 * (attempt + 1))
+                    continue
+                if model != self.model:
+                    log_ai_error(self.label, model, "used fallback model successfully")
+                return r
+        if r is not None:          # every try got a server error: report that
+            return r
+        raise AgentError(explain_network_error(self.label, last_err))
 
     def suggest(self, request: str, parts: list[Part]) -> Suggestion:
         if not any(p.printable for p in parts):
@@ -126,16 +190,15 @@ class OpenAICompatAgent(Agent):
         if self.key:
             headers["Authorization"] = f"Bearer {self.key}"
 
-        try:
-            r = self._post(self.base_url + "chat/completions", json=body, headers=headers,
-                           timeout=self.timeout)
-        except requests.RequestException as e:
-            raise AgentError(f"{self.label} could not be reached. Use 'Browse parts' instead.") from e
+        r = self._send(body, headers)
         if r.status_code == 429:
             raise AgentError(f"{self.label} free limit reached for now. Wait a minute, "
                              "or use 'Browse parts'.")
         if r.status_code in (401, 403) or (r.status_code == 400 and "api key" in r.text.lower()):
             raise AgentError(f"{self.label} did not accept the API key. Check settings.local.yaml.")
+        if r.status_code >= 500:
+            raise AgentError(f"{self.label}'s servers are busy right now ({r.status_code}). "
+                             "Try again in a few minutes, or use 'Browse parts'.")
         if r.status_code >= 400:
             raise AgentError(f"{self.label} returned an error ({r.status_code}). Use 'Browse parts' instead.")
 
