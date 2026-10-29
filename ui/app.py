@@ -438,6 +438,19 @@ def page_library_setup() -> None:
             st.rerun()
         (st.success if up.ok else st.warning)(up.message)
     c2.link_button("Open the Google Sheet ↗", sheet_edit_url(), use_container_width=True)
+    if st.button("🤖 Test AI connection"):
+        import time as _t
+
+        t0 = _t.monotonic()
+        try:
+            with st.spinner("Asking the AI a test question…"):
+                agent = get_agent()
+                sug = agent.suggest("Test: a hook to hang a bag on the wall", parts)
+            st.success(f"The AI answered in {_t.monotonic() - t0:.0f} s"
+                       + (f" (it picked: {get_part(parts, sug.part_id).name})" if sug.part_id else "") + ".")
+        except AgentError as e:
+            st.error(str(e))
+            st.caption("Technical details are saved in jobs/ai_errors.log.")
 
     if ss.get("flash"):
         st.success(ss.pop("flash"))

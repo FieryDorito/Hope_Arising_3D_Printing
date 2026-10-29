@@ -51,7 +51,7 @@ def test_plain_json_fallback_and_no_match(test_library):
 
 
 @pytest.mark.parametrize("status,text,word", [(429, "", "limit"), (401, "", "key"),
-                                              (400, "API key not valid", "key"), (500, "", "error")])
+                                              (400, "API key not valid", "key"), (500, "", "busy"), (404, "", "error")])
 def test_errors_are_plain_language(test_library, status, text, word):
     with pytest.raises(AgentError, match=word):
         OpenAICompatAgent(CFG, post=fake_post(status=status, text=text)).suggest("hook", test_library)
@@ -89,3 +89,55 @@ def test_example_placeholder_is_not_a_key(monkeypatch):
     monkeypatch.delitem(agents.settings()["agent"], "api_key", raising=False)
     with pytest.raises(AgentError, match="settings.local"):
         OpenAICompatAgent({**CFG, "api_key": "paste-your-Gemini-key-here"})
+
+
+# ---- reliability: retries, fallback model, plain-language network errors
+import requests as _rq
+
+
+def scripted_post(outcomes):
+    """Each call pops the next outcome: an exception to raise, or (status, message)."""
+    calls = []
+
+    def post(url, json=None, headers=None, timeout=None):
+        calls.append(json["model"])
+        o = outcomes.pop(0)
+        if isinstance(o, Exception):
+            raise o
+        status, message = o
+        return SimpleNamespace(status_code=status, text="",
+                               json=lambda: {"choices": [{"message": message or {}}]})
+    post.calls = calls
+    return post
+
+
+GOOD = tool_message({"part_id": "test-spacer", "settings": [], "material": "PLA",
+                     "strength": "Normal", "explanation": "ok"})
+
+
+def test_timeout_then_fallback_model_works(test_library):
+    post = scripted_post([_rq.exceptions.Timeout(), _rq.exceptions.Timeout(), (200, GOOD)])
+    s = OpenAICompatAgent({**CFG, "fallback_models": ["lite-model"]}, post=post).suggest("x", test_library)
+    assert s.part_id == "test-spacer" and post.calls == ["test-model", "test-model", "lite-model"]
+
+
+def test_busy_server_retried_once(test_library):
+    post = scripted_post([(503, None), (200, GOOD)])
+    assert OpenAICompatAgent(CFG, post=post).suggest("x", test_library).part_id == "test-spacer"
+
+
+@pytest.mark.parametrize("err,words", [
+    (_rq.exceptions.Timeout(), "took too long"),
+    (_rq.exceptions.SSLError(), "Wi-Fi"),
+    (_rq.exceptions.ConnectionError(), "internet"),
+])
+def test_network_errors_explained(test_library, err, words):
+    post = scripted_post([err] * 4)
+    with pytest.raises(AgentError, match=words):
+        OpenAICompatAgent(CFG, post=post).suggest("x", test_library)
+
+
+def test_always_busy_says_busy(test_library):
+    post = scripted_post([(503, None)] * 4)
+    with pytest.raises(AgentError, match="busy"):
+        OpenAICompatAgent(CFG, post=post).suggest("x", test_library)
