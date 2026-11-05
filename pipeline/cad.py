@@ -7,6 +7,7 @@ Any future CAD backend (CadQuery, FreeCAD) only needs another branch in build_mo
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
+from .config import settings
 from .library import ModelFile, Part
 
 
@@ -40,11 +42,42 @@ def load_mesh(model_file: Path) -> trimesh.Trimesh:
     return mesh
 
 
+def _openscad_guesses() -> list[Path]:
+    """Where the OpenSCAD installers put it. The Windows installer does NOT add it to PATH."""
+    out = []
+    for env in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        base = os.environ.get(env)
+        if base:
+            out += [Path(base) / "OpenSCAD" / "openscad.exe",
+                    Path(base) / "OpenSCAD (Nightly)" / "openscad.exe"]
+    out += [Path(r"C:\Program Files\OpenSCAD\openscad.exe"),
+            Path(r"C:\Program Files (x86)\OpenSCAD\openscad.exe")]
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        out.append(Path(local) / "Programs" / "OpenSCAD" / "openscad.exe")
+    out += [Path("/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD"),
+            Path("/usr/bin/openscad"), Path("/usr/local/bin/openscad"),
+            Path("/opt/homebrew/bin/openscad")]
+    return out
+
+
 def _openscad_exe() -> str:
-    exe = shutil.which("openscad") or shutil.which("openscad.com")
-    if not exe:
-        raise CadError("OpenSCAD is not installed on this computer (needed for adjustable parts).")
-    return exe
+    configured = (settings().get("cad") or {}).get("openscad_executable", "")
+    if configured:
+        if Path(configured).exists() or shutil.which(configured):
+            return configured
+        raise CadError(f"OpenSCAD was not found at {configured}. Check cad: openscad_executable "
+                       "in config/settings.local.yaml.")
+    for name in ("openscad", "openscad.com", "openscad.exe"):
+        exe = shutil.which(name)
+        if exe:
+            return exe
+    for g in _openscad_guesses():
+        if g.exists():
+            return str(g)
+    raise CadError("OpenSCAD is not installed on this computer (needed for adjustable parts). "
+                   "If it is installed in an unusual folder, put its path in config/settings.local.yaml "
+                   "under cad: openscad_executable.")
 
 
 def _scad_value(v) -> str:
