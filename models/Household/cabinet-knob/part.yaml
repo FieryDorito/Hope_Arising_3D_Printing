@@ -1,0 +1,2 @@
+# Settings are read from the .scad file automatically. Add 'params:' here to override them.
+description: "Knob for a drawer, cabinet or door. Screw goes through the door into the knob; optional nut pocket in the base for a machine screw (M3-M6)."
