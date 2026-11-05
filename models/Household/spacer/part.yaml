@@ -1,0 +1,2 @@
+# Settings are read from the .scad file automatically. Add 'params:' here to override them.
+description: "Round or hex spacer / washer for a bolt or rod. Set outside diameter, bolt diameter and height. Used to space shelves, wheels, brackets and fan mounts."

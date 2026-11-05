@@ -1,0 +1,2 @@
+# Settings are read from the .scad file automatically. Add 'params:' here to override them.
+description: "Barbed connector joining two hoses of the same or different inside diameters. Repairs a cut hose or adapts sizes. Use PETG and a hose clamp for water under pressure."

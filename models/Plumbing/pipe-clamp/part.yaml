@@ -1,0 +1,2 @@
+# Settings are read from the .scad file automatically. Add 'params:' here to override them.
+description: "Wall saddle clamp that holds a pipe, hose or cable bundle against a wall with two screws. Set the pipe diameter, strap width and screw size."

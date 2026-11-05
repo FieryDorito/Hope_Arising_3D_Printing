@@ -1,0 +1,2 @@
+# Settings are read from the .scad file automatically. Add 'params:' here to override them.
+description: "Block with a guide hole for drilling straight, centred holes. Side notches line up with pencil marks; optional V-groove for drilling round rods and pipes."
