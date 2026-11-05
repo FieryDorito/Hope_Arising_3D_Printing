@@ -12,3 +12,7 @@ agent:
 
 # slicer:
 #   executable: "C:\\Program Files\\Prusa3D\\PrusaSlicer\\prusa-slicer-console.exe"
+
+# Only needed if OpenSCAD is installed somewhere unusual (the normal install folders are found automatically):
+# cad:
+#   openscad_executable: "C:\\Program Files\\OpenSCAD\\openscad.exe"

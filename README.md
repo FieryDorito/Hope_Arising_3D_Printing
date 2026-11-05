@@ -35,6 +35,9 @@ Without a key, "Browse parts" still works.
 | Infill / walls | `config/process/*.ini` |
 | AI provider (gemini / claude / ollama) | `agent.provider` in settings; new kinds go in `pipeline/agents/` |
 | Slicer (e.g. OrcaSlicer) | `slicer.backend` in settings; backends in `pipeline/slicers/` |
+| The "How to use" guide | `ui/help/how_to_use.md` (plain text, easy to edit or translate) |
+| Wi-Fi printers (experimental) | `network_printers:` in settings; code in `pipeline/netprint.py` |
+| OpenSCAD in an unusual folder | `cad: openscad_executable:` in `settings.local.yaml` (normal install folders are found automatically) |
 
 ## Rules that keep it reliable
 
@@ -47,4 +50,5 @@ Without a key, "Browse parts" still works.
 ## Status
 
 - Working: library sync from the sheet, browsing and search, AI agent (Gemini free tier, Claude, or Ollama), size checks, OpenSCAD and STL parts, PrusaSlicer, preview, print time and cost.
-- Not yet: real model files (only test shapes so far), OrcaSlicer backend (written but **untested**), sending files to the printer over the network.
+- Working: one step per screen with the steps listed in the sidebar, a "How to use" guide, saving straight to an SD card / USB stick, and **Past prints** (reprint, change and print again, customer name/phone/notes and order status). Past prints live in `jobs/` on each computer.
+- Not yet: OrcaSlicer backend (written but **untested**). Sending files over Wi-Fi is written for Klipper/Moonraker printers but **not yet tried on a real printer**; the button stays off until a printer is added in settings.

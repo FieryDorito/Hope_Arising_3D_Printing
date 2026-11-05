@@ -81,3 +81,10 @@ agent:
 
 jobs_dir: jobs
 currency: ETB
+
+# Printers that can receive files over Wi-Fi (EXPERIMENTAL, not yet tried on a real printer).
+# Needs Klipper + Moonraker on the printer. Ender 3 printers use the SD card instead.
+# Leave empty and the "Send over Wi-Fi" button stays switched off.
+network_printers: []
+#  - name: K1C by the window
+#    address: 192.168.1.50
