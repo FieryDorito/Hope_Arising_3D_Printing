@@ -27,9 +27,11 @@ You can always click an earlier step to go back and change something.
 - Put the SD card in the computer and press **Save to card**.
 - When it says it is done, take the card out, put it in the printer, load the right
   filament, and choose the file on the printer screen.
-- **Bambu Lab printers**: press **Send to the printer**. With "Start printing straight away"
-  ticked it starts by itself, so make sure the plate is clear and the filament is loaded.
-  No Send button? Save it to a card / USB stick, or ask a maintainer to set up Wi-Fi.
+- **Bambu Lab printers** — two ways, both on the screen:
+  - **USB flash drive:** put the drive in the computer, press **Save**, then plug the drive into
+    the USB port on the front of the printer and choose the file on the printer screen.
+  - **Wi-Fi:** press **Send to the printer**. With "Start printing straight away" ticked it starts
+    by itself, so make sure the plate is clear and the filament is loaded.
 
 ### Past prints
 

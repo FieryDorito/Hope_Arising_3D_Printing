@@ -384,7 +384,7 @@ def save_to_card(files: list[Path], key: str, then: str = "put it in the printer
     """Write the print files straight onto an SD card / USB stick plugged into this computer."""
     drives = list_removable()
     if not drives:
-        st.info("💾 Put the SD card (or USB stick) into this computer, then press **Look again**.")
+        st.info("💾 Put the SD card or USB flash drive into this computer, then press **Look again**.")
         st.button("🔄 Look again", key=f"look_{key}")
         return
     if len(drives) == 1:
@@ -439,9 +439,23 @@ def download_buttons(files: list[Path], key: str) -> None:
 
 
 def send_to_bambu(files: list[Path], printer_name: str, key: str) -> None:
-    """Bambu Lab: the file is already sliced. Send it over Wi-Fi, or save it to a card / stick."""
-    lan = lan_config(printer_name)
-    if lan:
+    """Bambu Lab: the file is already sliced. Two ways to the printer, side by side:
+    a USB flash drive (always works) or Wi-Fi (once set up)."""
+    usb, wifi = st.columns(2, gap="large")
+    with usb:
+        st.markdown("**💾 USB flash drive**")
+        st.caption(f"Plug a flash drive into this computer, save, then plug it into the USB port on the "
+                   f"front of the {printer_name} and choose the file on the printer screen.")
+        save_to_card(files, key, then=f"plug it into the {printer_name} and choose the file on its screen")
+        download_buttons(files, key)
+    with wifi:
+        st.markdown("**📡 Wi-Fi**")
+        lan = lan_config(printer_name)
+        if not lan:
+            st.caption(f"Not set up on this computer yet. A maintainer adds the {printer_name}'s IP address, "
+                       "serial number and access code in config/settings.local.yaml (see bambu_lan in "
+                       "settings.local.example.yaml). Use the flash drive until then.")
+            return
         start = st.checkbox("Start printing straight away", value=True, key=f"bstart_{key}",
                             help="Only if the build plate is clear and the right filament is loaded.")
         if st.button(f"📡 Send to {printer_name}", type="primary", key=f"bsend_{key}"):
@@ -449,7 +463,7 @@ def send_to_bambu(files: list[Path], printer_name: str, key: str) -> None:
                 with st.spinner(f"Sending to {printer_name}…"):
                     bambu_send(lan, files, start=start)
                 ss[f"bsent_{key}"] = (f"Sent to {printer_name}. " + ("It is starting now." if start else
-                                      "Start it from the printer screen (Files)."))
+                                      "Start it from the printer screen."))
             except BambuSendError as e:
                 ss.pop(f"bsent_{key}", None)
                 st.error(str(e))
@@ -457,13 +471,6 @@ def send_to_bambu(files: list[Path], printer_name: str, key: str) -> None:
             st.success(ss[f"bsent_{key}"])
         if len(files) > 1:
             st.caption("All prints are sent; only the first one starts. Start the next ones from the printer screen.")
-    else:
-        st.info(f"Wi-Fi sending to the {printer_name} isn't set up on this computer yet. A maintainer adds the "
-                "printer's IP address, serial number and access code in config/settings.local.yaml "
-                "(see bambu_lan in settings.local.example.yaml). Until then, use a card or USB stick below.")
-    with st.expander("Save to an SD card / USB stick, or download"):
-        save_to_card(files, key, then="put it in the printer and choose it under Files on the printer screen")
-        download_buttons(files, key)
 
 
 def open_in_slicer(files: list[Path], printer: dict, key: str) -> None:
