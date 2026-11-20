@@ -30,3 +30,6 @@ agent:
 # Only needed if OpenSCAD is installed somewhere unusual (the normal install folders are found automatically):
 # cad:
 #   openscad_executable: "C:\\Program Files\\OpenSCAD\\openscad.exe"
+
+# Sharing the app as a link (e.g. with testers)? Set a password; everyone must type it first.
+# app_password: "pick-something-long"
