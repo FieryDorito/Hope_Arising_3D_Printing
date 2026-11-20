@@ -291,9 +291,16 @@ def _build_plate_3mf(plate: Plate, out: Path, printer: dict) -> Path:
     scene, seen = trimesh.Scene(), {}
     for pl, m in zip(plate.placements, meshes):
         m.apply_translation(shift)
+        # Slicers (OrcaSlicer, Bambu Studio) re-centre each object's shape when they load it,
+        # so the position must be in the object's placement, not baked into the shape:
+        # shape centred on its own origin + a move to where it belongs.
+        (x0, y0, z0), (x1, y1, _) = m.bounds
+        where = np.array([(x0 + x1) / 2, (y0 + y1) / 2, z0])
+        m.apply_translation(-where)
         seen[pl.label] = seen.get(pl.label, 0) + 1
         name = pl.label if seen[pl.label] == 1 else f"{pl.label} {seen[pl.label]}"
-        scene.add_geometry(m, node_name=name, geom_name=name)
+        scene.add_geometry(m, node_name=name, geom_name=name,
+                           transform=trimesh.transformations.translation_matrix(where))
     scene.export(out)
     return out
 
