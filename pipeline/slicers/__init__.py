@@ -3,9 +3,10 @@ from __future__ import annotations
 from ..config import settings
 from .base import SliceProfiles, SliceResult, Slicer, SlicerError
 
+# The fallback slicer for G-code printers when OrcaSlicer isn't installed (`slicer.backend`).
+# OrcaSlicer itself is used directly by run_job for every printer with `orca_profiles`.
 BACKENDS = {
     "prusaslicer": "pipeline.slicers.prusaslicer:PrusaSlicer",
-    "orcaslicer": "pipeline.slicers.orcaslicer:OrcaSlicer",
 }
 
 

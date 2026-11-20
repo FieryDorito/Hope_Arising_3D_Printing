@@ -1,14 +1,85 @@
 name: tests
-on: [push, pull_request]
+# Pull requests are tested once per change; main is tested again after merging.
+# (push + pull_request on every branch ran everything twice.)
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+# A newer push to the same PR cancels the older, still-running tests.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.13"}
+      - name: Use the main Ubuntu download server (GitHub's Azure copy is sometimes very slow)
+        run: |
+          # GitHub's runners download Ubuntu packages from azure.archive.ubuntu.com first. When that
+          # copy doesn't answer, apt waits and retries for many minutes. Use the main server instead,
+          # and give up on a server after 20 s instead of hanging.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+            grep -q . /etc/apt/apt-mirrors.txt || echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt
+          fi
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-fail-fast
       - name: Install slicer and CAD tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends prusa-slicer openscad
       - run: pip install -r requirements.txt
       - name: Run tests (every library part must slice)
         run: QT_QPA_PLATFORM=offscreen python -m pytest -v
+
+  orcaslicer:
+    # Slices real parts with the real OrcaSlicer (P2S -> .gcode.3mf, Ender 3 -> .gcode).
+    # The sliced files are kept as a download ("orca-sliced-files") to check in a slicer.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.13"}
+      - name: Use the main Ubuntu download server (GitHub's Azure copy is sometimes very slow)
+        run: |
+          # GitHub's runners download Ubuntu packages from azure.archive.ubuntu.com first. When that
+          # copy doesn't answer, apt waits and retries for many minutes. Use the main server instead,
+          # and give up on a server after 20 s instead of hanging.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+            grep -q . /etc/apt/apt-mirrors.txt || echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt
+          fi
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-fail-fast
+      - name: Install OrcaSlicer (AppImage) and what it needs to run without a screen
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libgtk-3-0t64 libwebkit2gtk-4.1-0 \
+            libgl1 libegl1 libglu1-mesa libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 libsecret-1-0 \
+            libfuse2t64 || true
+          gh release view -R OrcaSlicer/OrcaSlicer --json tagName,assets --jq '.tagName, (.assets[].name)'
+          mkdir -p ~/orca && cd ~/orca
+          gh release download -R OrcaSlicer/OrcaSlicer --pattern '*Ubuntu2404*.AppImage' \
+            || gh release download -R OrcaSlicer/OrcaSlicer --pattern '*Linux*.AppImage'
+          f=$(ls *.AppImage | head -1); chmod +x "$f"
+          "./$f" --appimage-extract >/dev/null
+          echo "ORCA_SLICER=$HOME/orca/squashfs-root/AppRun" >> "$GITHUB_ENV"
+      - run: pip install -r requirements.txt
+      - name: Slice with the real OrcaSlicer
+        env: {ORCA_ARTIFACT_DIR: "${{ runner.temp }}/sliced"}
+        run: xvfb-run -a python -m pytest -v tests/test_orca.py -k real_orca
+      - name: What OrcaSlicer made
+        if: always()
+        run: python tools/describe_print_file.py ${{ runner.temp }}/sliced/* || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: orca-sliced-files, path: "${{ runner.temp }}/sliced", if-no-files-found: warn}

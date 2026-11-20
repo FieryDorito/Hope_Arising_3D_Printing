@@ -23,6 +23,8 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pipeline.agents import AgentError, get_agent  # noqa: E402
+from pipeline.bambu_lan import BambuSendError, lan_config  # noqa: E402
+from pipeline.bambu_lan import send as bambu_send  # noqa: E402
 from pipeline.cad import preview_mesh  # noqa: E402
 from pipeline.config import ROOT, printers, settings  # noqa: E402
 from pipeline.drives import DriveError, copy_to_drive, list_removable  # noqa: E402
@@ -431,9 +433,37 @@ def send_wifi(files: list[Path], key: str) -> None:
 
 def download_buttons(files: list[Path], key: str) -> None:
     for i, f in enumerate(files):
-        mime = "model/3mf" if f.suffix == ".3mf" else "text/plain"
+        mime = "application/octet-stream" if f.suffix == ".3mf" else "text/plain"
         st.download_button(f"⬇️ Download {f.name}", data=f.read_bytes(), file_name=f.name,
                            mime=mime, key=f"dl_{key}_{i}")
+
+
+def send_to_bambu(files: list[Path], printer_name: str, key: str) -> None:
+    """Bambu Lab: the file is already sliced. Send it over Wi-Fi, or save it to a card / stick."""
+    lan = lan_config(printer_name)
+    if lan:
+        start = st.checkbox("Start printing straight away", value=True, key=f"bstart_{key}",
+                            help="Only if the build plate is clear and the right filament is loaded.")
+        if st.button(f"📡 Send to {printer_name}", type="primary", key=f"bsend_{key}"):
+            try:
+                with st.spinner(f"Sending to {printer_name}…"):
+                    bambu_send(lan, files, start=start)
+                ss[f"bsent_{key}"] = (f"Sent to {printer_name}. " + ("It is starting now." if start else
+                                      "Start it from the printer screen (Files)."))
+            except BambuSendError as e:
+                ss.pop(f"bsent_{key}", None)
+                st.error(str(e))
+        if ss.get(f"bsent_{key}"):
+            st.success(ss[f"bsent_{key}"])
+        if len(files) > 1:
+            st.caption("All prints are sent; only the first one starts. Start the next ones from the printer screen.")
+    else:
+        st.info(f"Wi-Fi sending to the {printer_name} isn't set up on this computer yet. A maintainer adds the "
+                "printer's IP address, serial number and access code in config/settings.local.yaml "
+                "(see bambu_lan in settings.local.example.yaml). Until then, use a card or USB stick below.")
+    with st.expander("Save to an SD card / USB stick, or download"):
+        save_to_card(files, key, then="put it in the printer and choose it under Files on the printer screen")
+        download_buttons(files, key)
 
 
 def open_in_slicer(files: list[Path], printer: dict, key: str) -> None:
@@ -641,7 +671,7 @@ def step4(part: Part) -> None:
     job = fresh_job(part)
     step(4, f"Save and print — {part.name}")
     printer = job.printer
-    own_slicer = printer["output"] == "3mf"
+    own_slicer = job.output == "3mf"
     about = "About " if own_slicer else ""
     m1, m2, m3 = st.columns(3)
     m1.metric(f"{about}print time", format_duration(job.print_time_s))
@@ -650,7 +680,7 @@ def step4(part: Part) -> None:
     if own_slicer:
         st.caption(f"Estimates. {printer.get('slicer_app') or 'The printer software'} shows the exact numbers.")
     for w in job.warnings:
-        if "estimate" in w:
+        if "estimate" in w or "slice" in w:
             st.warning(w)
     if job.print_time_s and job.print_time_s > 2 * 3600:
         st.warning("This is a long print. Make sure the generator is ready in case the power goes off.")
@@ -669,7 +699,11 @@ def step4(part: Part) -> None:
     order_form(job.folder, f"new_{job.folder.name}", with_status=False)
 
     st.markdown(f"#### Send it to the printer — {printer['name']}")
-    if own_slicer:
+    if job.output == "bambu":
+        st.success(f"Sliced and ready for the {printer['name']}.")
+        send_to_bambu(gcodes, printer["name"], f"new_{job.folder.name}")
+        st.caption(f"Load **{ss.material}** filament before you start the print.")
+    elif own_slicer:
         open_in_slicer(gcodes, printer, f"new_{job.folder.name}")
         st.caption(f"Load **{ss.material}** filament before you start the print.")
     else:
@@ -741,7 +775,9 @@ def page_past_prints() -> None:
                 if j.customer_request:
                     st.caption(f"Customer asked for: “{j.customer_request}”")
                 k = j.folder.name
-                if j.output == "3mf":
+                if j.output == "bambu":
+                    send_to_bambu(j.gcodes, j.printer, f"past_{k}")
+                elif j.output == "3mf":
                     pr = PRINTERS.get(j.printer) or {"name": j.printer or "printer", "slicer_app": ""}
                     open_in_slicer(j.gcodes, pr, f"past_{k}")
                 else:
@@ -750,7 +786,7 @@ def page_past_prints() -> None:
                 c1.button("✏️ Change and print again", key=f"reopen_{k}", on_click=reopen, args=(j,),
                           disabled=not (part and part.printable), width="stretch",
                           help="Opens this order at step 2 with the same settings, so you can fix the size.")
-                if j.output != "3mf":
+                if j.output == "gcode":
                     with c2.popover("More", width="stretch"):
                         send_wifi(j.gcodes, f"past_{k}")
                         download_buttons(j.gcodes, f"past_{k}")

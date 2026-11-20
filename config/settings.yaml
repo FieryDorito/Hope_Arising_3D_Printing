@@ -13,20 +13,25 @@ library:
 # Every printer the shop (or a student) can print on. The first one is picked by default.
 # The worker chooses the printer in step 2, and the app checks the part fits THAT bed.
 #
-#   output: gcode  The app slices the part and gives a .gcode for the SD card / Wi-Fi.
-#                  Needs `profile`: a PrusaSlicer .ini made for that printer (see config/printers/).
-#                  Use for Ender 3 and other Marlin printers, Prusa, and Klipper printers.
-#   output: 3mf    The app arranges the plate and gives a .3mf. The worker opens it in the
-#                  printer's own slicer (`slicer_app`), slices and prints from there.
-#                  Use for printers that won't run plain G-code from a card, like Bambu Lab.
-#                  `profile` is optional here and only used to estimate time, plastic and cost.
-#
-# Adding a printer: copy one entry, change the name and bed size, and (for gcode) make its
-# .ini by exporting "Printer settings" from PrusaSlicer into config/printers/. Then run pytest.
+# Slicing uses OrcaSlicer (free, install it on the computer that runs the app). OrcaSlicer has
+# official settings for most printers: Bambu Lab, Creality, Prusa, Elegoo, Anycubic, Voron...
+#   orca_profiles  folder with that printer's OrcaSlicer settings, made by
+#                  tools/make_slicer_profiles.py (see README "Printers")
+#   bed_type       the build plate on the printer - sets the bed temperature. One of:
+#                  Cool Plate, Engineering Plate, High Temp Plate, Textured PEI Plate,
+#                  Textured Cool Plate, Supertack Plate. Change it if you swap plates.
+#   output: gcode  gives a .gcode for the SD card / Wi-Fi (Ender 3, Prusa, Klipper printers...)
+#   output: bambu  gives a ready .gcode.3mf for Bambu Lab, which the app can also send over
+#                  Wi-Fi (see bambu_lan in settings.local.example.yaml)
+#   output: 3mf    gives an arranged (not sliced) .3mf to slice in the printer's own software
+# If OrcaSlicer isn't installed: gcode printers use PrusaSlicer with `profile` (an .ini in
+# config/printers/), and bambu printers fall back to a .3mf to slice by hand.
 printers:
   - name: Creality Ender 3
     output: gcode
-    profile: config/printers/ender3.ini
+    orca_profiles: config/orca/ender3
+    bed_type: High Temp Plate                  # stock bed: PLA 60 °C, PETG 80 °C
+    profile: config/printers/ender3.ini        # PrusaSlicer, used if OrcaSlicer is missing
     bed_x_mm: 220
     bed_y_mm: 220
     max_z_mm: 250
@@ -35,14 +40,16 @@ printers:
     note: Save to the SD card and put it in the printer.
 
   - name: Bambu Lab P2S
-    output: 3mf
-    slicer_app: Bambu Studio
-    profile: config/printers/bambu_p2s_estimate.ini   # estimates only, never sent to the printer
+    output: bambu
+    slicer_app: Bambu Studio or OrcaSlicer
+    orca_profiles: config/orca/p2s
+    bed_type: Textured PEI Plate               # the plate the P2S comes with: PLA 55 °C, PETG 70 °C
+    profile: config/printers/bambu_p2s_estimate.ini   # rough estimate only, if OrcaSlicer is missing
     bed_x_mm: 256
     bed_y_mm: 256
     max_z_mm: 256
     margin_mm: 5
-    note: Open the file in Bambu Studio, then print from there.
+    note: Sliced automatically. Send it over Wi-Fi or save it to a USB stick.
 
 materials:
   # key: what the operator sees. price is per kg in Ethiopian Birr (update from Robox catalog).
@@ -59,17 +66,27 @@ strength:
   Normal:
     profile: config/process/standard.ini
     note: Most household parts.
+    # The same changes for OrcaSlicer (on top of each printer's own OrcaSlicer settings).
+    # Normal supports, not tree: trees grow sideways and can run into the next piece on the
+    # plate, and OrcaSlicer then refuses to slice ("G-code conflicts").
+    orca: {wall_loops: 3, sparse_infill_density: 20%, top_shell_layers: 5, bottom_shell_layers: 4,
+            enable_support: 1, support_type: normal(auto)}
   Strong:
     profile: config/process/strong.ini
     note: Parts that carry weight (hooks, brackets, hinges). Uses more plastic.
+    orca: {wall_loops: 5, sparse_infill_density: 50%, top_shell_layers: 6, bottom_shell_layers: 6,
+            enable_support: 1, support_type: normal(auto)}
 
 slicer:
-  # prusaslicer (tested) or orcaslicer (experimental, not yet tested)
+  # OrcaSlicer is used for every printer with orca_profiles. This older slicer is the
+  # fallback for G-code printers when OrcaSlicer isn't installed.
   backend: prusaslicer
   # Leave blank to find it automatically. On Windows this is usually
   # C:\Program Files\Prusa3D\PrusaSlicer\prusa-slicer-console.exe
   executable: ""
   timeout_s: 600
+  # OrcaSlicer. Leave blank to find it automatically.
+  orca: ""
 
 agent:
   # Which AI to use: gemini (free tier, for testing), claude, ollama (free, offline), or none.

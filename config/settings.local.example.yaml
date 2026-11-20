@@ -13,6 +13,20 @@ agent:
 # slicer:
 #   executable: "C:\\Program Files\\Prusa3D\\PrusaSlicer\\prusa-slicer-console.exe"
 
+# Bambu Lab printers over Wi-Fi (send + start prints straight from the app).
+# On the printer: Settings > Network (WLAN) > turn on "LAN Only" and "Developer Mode".
+# That screen also shows the IP address and the 8-digit access code. The serial number is
+# under Settings > Device. Note: LAN Only mode turns off the Bambu Handy phone app.
+# bambu_lan:
+#   Bambu Lab P2S:                 # must match the printer's name in settings.yaml
+#     address: 192.168.1.60
+#     serial: "01P00A123456789"
+#     access_code: "12345678"
+
+# Only if OrcaSlicer is installed somewhere unusual (normal install folders are found automatically):
+# slicer:
+#   orca: "C:\\Program Files\\OrcaSlicer\\orca-slicer.exe"
+
 # Only needed if OpenSCAD is installed somewhere unusual (the normal install folders are found automatically):
 # cad:
 #   openscad_executable: "C:\\Program Files\\OpenSCAD\\openscad.exe"

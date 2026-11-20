@@ -34,7 +34,7 @@ Without a key, "Browse parts" still works.
 | Material temps, prices | `config/filaments/*.ini`, `materials:` in settings |
 | Infill / walls | `config/process/*.ini` |
 | AI provider (gemini / claude / ollama) | `agent.provider` in settings; new kinds go in `pipeline/agents/` |
-| Slicer (e.g. OrcaSlicer) | `slicer.backend` in settings; backends in `pipeline/slicers/` |
+| Slicer | OrcaSlicer for every printer with `orca_profiles` (`pipeline/slicers/orcaslicer.py`); PrusaSlicer fallback in `slicer.backend` |
 | The "How to use" guide | `ui/help/how_to_use.md` (plain text, easy to edit or translate) |
 | Wi-Fi printers (experimental) | `network_printers:` in settings; code in `pipeline/netprint.py` |
 | OpenSCAD in an unusual folder | `cad: openscad_executable:` in `settings.local.yaml` (normal install folders are found automatically) |
@@ -43,19 +43,47 @@ Without a key, "Browse parts" still works.
 
 The shop can have several printers. Each one is an entry under `printers:` in `config/settings.yaml`
 (the first is the default); the worker picks one in step 2 and the part is checked against **that** bed.
-Each printer says what the app hands over:
+
+**Slicing is done by [OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)** (free). It ships official
+settings for most printers (Bambu Lab, Creality, Prusa, Elegoo, Anycubic, Voron and more), so adding a
+printer is mostly picking names. Install OrcaSlicer on the computer that runs the app; the app finds it
+on Windows, Mac and Linux (or set `slicer: orca:` in `settings.local.yaml`).
 
 | `output:` | What the worker gets | For |
 |---|---|---|
-| `gcode` | A sliced `.gcode` for the SD card / Wi-Fi. Needs `profile:` (a PrusaSlicer `.ini` for that printer). | Ender 3 and other Marlin printers, Prusa, Klipper printers |
-| `3mf` | A ready-arranged `.3mf` to open in the printer's own slicer (`slicer_app:`), slice and print from there. `profile:` is optional and only used to estimate time/plastic/cost. | Printers that won't run plain G-code from a card: **Bambu Lab** (P2S, P1S, X1, A1...) |
+| `gcode` | A sliced `.gcode` for the SD card / Wi-Fi (Klipper) | Ender 3 and other Marlin printers, Prusa, Klipper printers |
+| `bambu` | A sliced `.gcode.3mf`, sent to the printer over Wi-Fi with one button (or saved to a card / USB stick) | Bambu Lab (P2S, P1S, X1, A1, H2...) |
+| `3mf` | An arranged, **not** sliced `.3mf` to slice in the printer's own software | Anything else |
 
-Why not G-code for Bambu? Bambu printers print `.gcode.3mf` files from Bambu Studio, and their start code
-(bed levelling, nozzle wipe, filament loading) is specific to each machine. G-code made for an Ender 3 won't
-show up on a Bambu printer, and running another printer's start code could damage it.
+If OrcaSlicer isn't installed, `gcode` printers fall back to PrusaSlicer (`profile:`, an `.ini` in
+`config/printers/`) and `bambu` printers fall back to a `.3mf` to slice by hand. The app says so on screen.
 
-To add a printer: copy an entry, change the name and bed size, and for `gcode` export its *Printer settings*
-from PrusaSlicer into `config/printers/`. Run `python -m pytest`.
+### Adding a printer
+
+1. Find the printer in OrcaSlicer's `resources/profiles/<Brand>/` folder (in the OrcaSlicer install, or
+   [on GitHub](https://github.com/OrcaSlicer/OrcaSlicer/tree/main/resources/profiles)). Note the exact
+   names of the printer (machine), a process (e.g. `0.20mm Standard @...`) and a PLA and PETG filament.
+2. Make the app's copy of those settings:
+   ```
+   python tools/make_slicer_profiles.py "<OrcaSlicer>/resources/profiles" config/orca/<short-name> --vendor <Brand> \
+       --machine "<printer name>" --process "<process name>" \
+       --filament PLA="<PLA name>" --filament PETG="<PETG name>"
+   ```
+3. Copy a printer entry in `config/settings.yaml`, change the name, bed size, `output` and
+   `orca_profiles: config/orca/<short-name>`. Run `python -m pytest`.
+
+Normal / Strong change walls, infill and supports on top of the printer's own settings (`orca:` under
+`strength:`). Supports are **normal**, not tree: tree supports grow sideways into the next piece and
+OrcaSlicer then refuses to slice.
+
+### Bambu Lab over Wi-Fi
+
+On the printer: *Settings → Network*: turn on **LAN Only** and **Developer Mode** (this turns off the
+Bambu Handy phone app). Put the printer's IP address, serial number and access code in
+`config/settings.local.yaml` under `bambu_lan:` (see `settings.local.example.yaml`). The access code is a
+password, so it never goes in `settings.yaml` (the app refuses to start if it does). Step 4 then shows
+**Send to <printer>**: the file is uploaded (FTPS) and the print started (MQTT). The computer must be on the
+same network as the printer, so this doesn't work from GitHub Codespaces.
 
 ## Rules that keep it reliable
 
@@ -69,5 +97,5 @@ from PrusaSlicer into `config/printers/`. Run `python -m pytest`.
 
 - Working: library sync from the sheet, browsing and search, AI agent (Gemini free tier, Claude, or Ollama), size checks, OpenSCAD and STL parts, PrusaSlicer, preview, print time and cost.
 - Working: one step per screen with the steps listed in the sidebar, a "How to use" guide, saving straight to an SD card / USB stick, and **Past prints** (reprint, change and print again, customer name/phone/notes and order status). Past prints live in `jobs/` on each computer.
-- Working: several printers. G-code printers (Ender 3) and Bambu Lab printers via a `.3mf` for Bambu Studio. Bambu output tested on a computer, **not yet on a real P2S**.
+- Working: several printers, sliced by OrcaSlicer (tested in CI with the real OrcaSlicer for the Ender 3 and the P2S). Sending to Bambu printers over Wi-Fi is tested against a fake printer, **not yet on a real P2S**.
 - Not yet: OrcaSlicer backend (written but **untested**). Sending files over Wi-Fi is written for Klipper/Moonraker printers but **not yet tried on a real printer**; the button stays off until a printer is added in settings.

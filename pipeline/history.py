@@ -36,13 +36,15 @@ class PastJob:
     print_time_s: int | None
     filament_g: float | None
     cost: float | None
-    gcodes: list[Path]                  # the print files: .gcode, or .3mf for "3mf" printers
+    gcodes: list[Path]                  # the print files: .gcode, .gcode.3mf (Bambu) or .3mf
     order: dict = field(default_factory=dict)
     printer: str = ""                   # "" for jobs made before printers could be chosen
 
     @property
     def output(self) -> str:
-        return "3mf" if self.gcodes and self.gcodes[0].suffix == ".3mf" else "gcode"
+        """gcode, bambu (sliced .gcode.3mf) or 3mf (still to be sliced)."""
+        name = self.gcodes[0].name if self.gcodes else ""
+        return "bambu" if name.endswith(".gcode.3mf") else "3mf" if name.endswith(".3mf") else "gcode"
 
     @property
     def status(self) -> str:

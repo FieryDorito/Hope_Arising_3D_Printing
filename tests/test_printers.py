@@ -16,12 +16,19 @@ from pipeline.validate import check_fits, check_request
 ENDER, P2S = "Creality Ender 3", "Bambu Lab P2S"
 
 
+@pytest.fixture
+def p2s_as_3mf(monkeypatch):
+    """The P2S in 'open it in Bambu Studio yourself' mode (output: 3mf)."""
+    ps = [dict(p, output="3mf") if p["name"] == P2S else p for p in config.settings()["printers"]]
+    monkeypatch.setitem(config.settings(), "printers", ps)
+
+
 def test_shop_printers_listed_with_ender_first():
     names = [p["name"] for p in printers()]
     assert names[0] == ENDER and P2S in names
     assert get_printer()["name"] == ENDER
     assert get_printer("no such printer")["name"] == ENDER
-    assert get_printer(P2S)["output"] == "3mf" and get_printer(ENDER)["output"] == "gcode"
+    assert get_printer(P2S)["output"] == "bambu" and get_printer(ENDER)["output"] == "gcode"
 
 
 def test_old_single_printer_setting_still_works(monkeypatch):
@@ -58,7 +65,7 @@ def test_unknown_printer_is_rejected(test_library):
     assert not c.ok and "Unknown printer" in c.errors[0]
 
 
-def test_bambu_job_makes_a_3mf_not_gcode(test_library):
+def test_3mf_printer_job_makes_a_3mf_not_gcode(test_library, p2s_as_3mf):
     hook = get_part(test_library, "test-hook")
     job = run_job(JobRequest("test-hook", {}, files={hook.files[0].rel: 3}, printer=P2S), test_library)
     assert job.ok, job.errors
@@ -80,7 +87,7 @@ def test_bambu_job_makes_a_3mf_not_gcode(test_library):
     assert past.printer == P2S and past.output == "3mf" and past.gcodes == [f]
 
 
-def test_bambu_job_without_estimate_profile_still_gives_file(test_library, monkeypatch):
+def test_3mf_printer_without_estimate_profile_still_gives_file(test_library, monkeypatch, p2s_as_3mf):
     ps = [dict(p) for p in config.settings()["printers"]]
     for p in ps:
         if p["name"] == P2S:
