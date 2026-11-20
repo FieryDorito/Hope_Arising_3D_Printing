@@ -1,9 +1,12 @@
 """The only entry point the UI (or any future front end) uses.
 
     job = prepare(request, parts)   # validate + build one STL per chosen piece -> preview
-    job = make_gcode(job)           # arrange pieces onto plates and slice      -> G-code(s)
+    job = make_gcode(job)           # arrange pieces onto plates and make the print file(s)
 
-Pieces are packed onto as few plates as fit the bed; each plate is one G-code file.
+Pieces are packed onto as few plates as fit the chosen printer's bed; each plate is one
+print file. What that file is depends on the printer (see `printers:` in settings.yaml):
+  output: gcode -> sliced here, a .gcode for the SD card / Wi-Fi
+  output: 3mf   -> a ready-arranged .3mf to open in the printer's own slicer (Bambu Studio...)
 Every job gets its own folder in jobs/ with the request, the final settings,
 the STLs, the G-code and logs, so problems can be reproduced later.
 """
@@ -19,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .cad import CadError, ModelInfo, build_piece
-from .config import path, settings
+from .config import get_printer, path, settings
 from .library import Part, get_part
 from .slicers import SliceProfiles, SliceResult, SlicerError, get_slicer
 from .validate import check_fits, check_request
@@ -36,6 +39,7 @@ class JobRequest:
     files: dict[str, int] | None = None   # rel path -> how many; None = the part's defaults
     customer_request: str = ""            # what the operator typed, if the AI was used
     ai_suggestion: dict | None = None
+    printer: str = ""                     # printer name from settings.yaml; "" = the first one
 
 
 @dataclass
@@ -58,6 +62,8 @@ class Placement:
 @dataclass
 class Plate:
     placements: list[Placement] = field(default_factory=list)
+    # result.gcode is this plate's print file: a .gcode, or a .3mf for "3mf" printers
+    # (then the time/plastic numbers are estimates, or None if they couldn't be worked out).
     result: SliceResult | None = None
 
     @property
@@ -81,6 +87,10 @@ class Job:
     @property
     def ok(self) -> bool:
         return not self.errors
+
+    @property
+    def printer(self) -> dict:
+        return get_printer(self.request.printer)
 
     # Single-piece shortcuts (older code and tests)
     @property
@@ -112,7 +122,8 @@ class Job:
     def plate_name(self, i: int) -> str:
         pid = self.part.part_id if self.part else "part"
         tail = f"_plate{i + 1}of{len(self.plates)}" if len(self.plates) > 1 else ""
-        return f"{pid}_{self.request.material}_{self.folder.name[:13]}{tail}.gcode"
+        ext = "3mf" if self.printer["output"] == "3mf" else "gcode"
+        return f"{pid}_{self.request.material}_{self.folder.name[:13]}{tail}.{ext}"
 
     def zip_all(self) -> Path:
         z = self.folder / f"{self.part.part_id}_all_plates.zip"
@@ -147,6 +158,8 @@ def _log(job: Job) -> None:
                     "print_time_s": pl.result.print_time_s if pl.result else None,
                     "filament_g": pl.result.filament_g if pl.result else None} for pl in job.plates],
         "cost": job.cost,
+        "printer": job.printer["name"],
+        "output": job.printer["output"],
         "slicer": settings()["slicer"]["backend"],
         "saved_at": datetime.now().isoformat(timespec="seconds"),
     }
@@ -160,7 +173,7 @@ def _stl_name(rel: str) -> str:
 def prepare(req: JobRequest, parts: list[Part]) -> Job:
     part = get_part(parts, req.part_id)
     job = Job(request=req, folder=_new_folder(req.part_id or "unknown"), part=part)
-    chk = check_request(part, req.params, req.material, req.strength, req.files)
+    chk = check_request(part, req.params, req.material, req.strength, req.files, req.printer)
     job.errors += chk.errors
     job.warnings += chk.warnings
     job.params, job.files = chk.params, chk.files
@@ -168,8 +181,9 @@ def prepare(req: JobRequest, parts: list[Part]) -> Job:
         try:
             for rel, n in job.files.items():
                 mf = part.file(rel)
-                model = build_piece(part, mf, job.params, job.folder / "pieces" / _stl_name(rel))
-                errs = check_fits(model.size_mm)
+                model = build_piece(part, mf, job.params, job.folder / "pieces" / _stl_name(rel),
+                                    job.printer)
+                errs = check_fits(model.size_mm, job.printer)
                 job.errors += [f"{mf.label}: {e}" for e in errs] if len(job.files) > 1 else errs
                 if not model.watertight:
                     job.warnings.append(f"{mf.label}: the 3D model has small holes. It will probably "
@@ -184,14 +198,14 @@ def prepare(req: JobRequest, parts: list[Part]) -> Job:
     return job
 
 
-def plan_plates(pieces: list[Piece]) -> list[Plate]:
+def plan_plates(pieces: list[Piece], printer: dict | None = None) -> list[Plate]:
     """Shelf-pack every copy's footprint onto as few beds as possible, and record where.
 
     Deliberately simple and a little cautious (bounding boxes + gaps). The app places the
     pieces itself and hands the slicer ONE ready-arranged model per plate, so what you
     see planned here is exactly what prints.
     """
-    p = settings()["printer"]
+    p = printer or get_printer()
     W = p["bed_x_mm"] - 2 * p["margin_mm"]
     D = p["bed_y_mm"] - 2 * p["margin_mm"]
     items = []
@@ -228,8 +242,8 @@ def plan_plates(pieces: list[Piece]) -> list[Plate]:
     return [pl["plate"] for pl in plates]
 
 
-def build_plate_stl(plate: Plate, out: Path) -> Path:
-    """Combine a plate's pieces, already placed, into one STL for the slicer."""
+def _placed_meshes(plate: Plate) -> list:
+    """Each piece of the plate as a mesh, moved to where plan_plates put it."""
     import trimesh
 
     cache, meshes = {}, []
@@ -242,7 +256,34 @@ def build_plate_stl(plate: Plate, out: Path) -> Path:
         lo = m.bounds[0]
         m.apply_translation([pl.x - lo[0], pl.y - lo[1], -lo[2]])
         meshes.append(m)
-    trimesh.util.concatenate(meshes).export(out)
+    return meshes
+
+
+def build_plate_stl(plate: Plate, out: Path) -> Path:
+    """Combine a plate's pieces, already placed, into one STL for the slicer."""
+    import trimesh
+
+    trimesh.util.concatenate(_placed_meshes(plate)).export(out)
+    return out
+
+
+def build_plate_3mf(plate: Plate, out: Path, printer: dict) -> Path:
+    """The plate as a .3mf for the printer's own slicer: every piece a separate, named object,
+    arranged as planned and centred on the bed. Opens in Bambu Studio, OrcaSlicer, PrusaSlicer."""
+    import numpy as np
+    import trimesh
+
+    meshes = _placed_meshes(plate)
+    lo = np.min([m.bounds[0] for m in meshes], axis=0)
+    hi = np.max([m.bounds[1] for m in meshes], axis=0)
+    shift = [printer["bed_x_mm"] / 2 - (lo[0] + hi[0]) / 2, printer["bed_y_mm"] / 2 - (lo[1] + hi[1]) / 2, 0]
+    scene, seen = trimesh.Scene(), {}
+    for pl, m in zip(plate.placements, meshes):
+        m.apply_translation(shift)
+        seen[pl.label] = seen.get(pl.label, 0) + 1
+        name = pl.label if seen[pl.label] == 1 else f"{pl.label} {seen[pl.label]}"
+        scene.add_geometry(m, node_name=name, geom_name=name)
+    scene.export(out)
     return out
 
 
@@ -250,15 +291,18 @@ def make_gcode(job: Job) -> Job:
     if not job.ok or not job.pieces:
         return job
     s = settings()
+    printer = job.printer
     profiles = SliceProfiles(
-        printer=path(s["printer"]["profile"]),
+        printer=path(printer["profile"]) if printer["profile"] else Path(),
         material=path(s["materials"][job.request.material]["profile"]),
         strength=path(s["strength"][job.request.strength]["profile"]),
         material_name=job.request.material,
         strength_name=job.request.strength,
     )
-    center = (s["printer"]["bed_x_mm"] / 2, s["printer"]["bed_y_mm"] / 2)
-    job.plates = plan_plates(job.pieces)
+    center = (printer["bed_x_mm"] / 2, printer["bed_y_mm"] / 2)
+    job.plates = plan_plates(job.pieces, printer)
+    if printer["output"] == "3mf":
+        return _make_3mf(job, profiles, center)
     try:
         from .slicers.base import prepend_header
 
@@ -286,6 +330,43 @@ def make_gcode(job: Job) -> Job:
         job.errors.append(str(e))
     except Exception:
         job.errors.append("Unexpected problem while slicing. Details saved in the job folder.")
+        (job.folder / "error.txt").write_text(traceback.format_exc(), encoding="utf-8")
+    _log(job)
+    return job
+
+
+def _make_3mf(job: Job, profiles: SliceProfiles, center: tuple[float, float]) -> Job:
+    """For printers that print from their own slicer: one ready-arranged .3mf per plate.
+
+    If the printer has an estimate profile, each plate is also sliced (into estimate/, never
+    used for printing) to show time, plastic and cost. If that fails the .3mf is still fine.
+    """
+    s, printer = settings(), job.printer
+    try:
+        slicer = None
+        if printer["profile"]:
+            try:
+                slicer = get_slicer()
+            except SlicerError:
+                job.warnings.append("Print time and cost can't be estimated on this computer. "
+                                    f"{printer['slicer_app'] or 'The printer software'} will show them.")
+        for i, plate in enumerate(job.plates):
+            out = build_plate_3mf(plate, job.folder / job.plate_name(i), printer)
+            t = g = m = None
+            if slicer:
+                plate_stl = build_plate_stl(plate, job.folder / f"plate{i + 1}.stl")
+                est = job.folder / "estimate" / f"plate{i + 1}.gcode"
+                try:
+                    r = slicer.slice([plate_stl], est, profiles, center)
+                    t, g, m = r.print_time_s, r.filament_g, r.filament_m
+                except SlicerError:
+                    job.warnings.append(f"Could not estimate print {i + 1}. The file itself is fine.")
+            plate.result = SliceResult(out, t, g, m)
+        if job.filament_g is not None:
+            price = s["materials"][job.request.material].get("price_per_kg", 0)
+            job.cost = round(job.filament_g / 1000 * price, 2)
+    except Exception:
+        job.errors.append("Unexpected problem while making the print file. Details saved in the job folder.")
         (job.folder / "error.txt").write_text(traceback.format_exc(), encoding="utf-8")
     _log(job)
     return job

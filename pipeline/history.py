@@ -1,7 +1,7 @@
 """Past prints and the simple order list.
 
-Every job already has its own folder in jobs/ (see run_job.py). A job that reached G-code
-is a "past print". This module reads those folders back and keeps a small order.json
+Every job already has its own folder in jobs/ (see run_job.py). A job that reached a print
+file (.gcode, or .3mf for printers that use their own slicer) is a "past print". This module reads those folders back and keeps a small order.json
 next to job.json with who it is for and where it is up to:
 
     list_jobs()                 newest first, only jobs that have a print file
@@ -36,8 +36,13 @@ class PastJob:
     print_time_s: int | None
     filament_g: float | None
     cost: float | None
-    gcodes: list[Path]
+    gcodes: list[Path]                  # the print files: .gcode, or .3mf for "3mf" printers
     order: dict = field(default_factory=dict)
+    printer: str = ""                   # "" for jobs made before printers could be chosen
+
+    @property
+    def output(self) -> str:
+        return "3mf" if self.gcodes and self.gcodes[0].suffix == ".3mf" else "gcode"
 
     @property
     def status(self) -> str:
@@ -75,7 +80,7 @@ def _sum(values):
 def load_job(folder: Path) -> PastJob | None:
     """Read one job folder. None if it never got as far as a print file."""
     info = _read_json(folder / "job.json")
-    gcodes = sorted(folder.glob("*.gcode"))
+    gcodes = sorted(folder.glob("*.gcode")) or sorted(folder.glob("*.3mf"))
     if not info or not gcodes:
         return None
     req = info.get("request") or {}
@@ -98,6 +103,7 @@ def load_job(folder: Path) -> PastJob | None:
         cost=info.get("cost"),
         gcodes=gcodes,
         order=_read_json(folder / "order.json"),
+        printer=info.get("printer", ""),
     )
 
 

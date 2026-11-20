@@ -71,6 +71,7 @@ def check() -> int:
     """Run by start.bat before launching: print a plain message and fail if settings are broken."""
     try:
         settings()
+        printers()
     except SettingsError as e:
         print("\n" + str(e) + "\n")
         return 1
@@ -81,11 +82,64 @@ def check() -> int:
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(check())
-
 
 def path(rel: str | os.PathLike) -> Path:
     """Resolve a path from settings relative to the project root."""
     p = Path(rel)
     return p if p.is_absolute() else ROOT / p
+
+
+# ---------------------------------------------------------------- printers
+
+# What the app hands over for each kind of printer:
+#   gcode - the app slices the part itself (PrusaSlicer + the printer's .ini profile) and
+#           gives a .gcode for the SD card / Wi-Fi. Ender 3, Prusa, Klipper printers, ...
+#   3mf   - the app arranges the plate and gives a .3mf. The worker opens it in the printer's
+#           own slicer (Bambu Studio, ...) and prints from there. For printers that won't run
+#           plain G-code from a card, like Bambu Lab.
+PRINTER_OUTPUTS = ("gcode", "3mf")
+_PRINTER_DEFAULTS = {"margin_mm": 5, "output": "gcode", "profile": "", "slicer_app": "", "note": ""}
+
+
+def printers() -> list[dict]:
+    """Every printer in settings.yaml, first one = default.
+
+    Accepts the newer `printers:` list and the older single `printer:` block.
+    """
+    s = settings()
+    raw = s.get("printers")
+    if not raw and s.get("printer"):
+        raw = [s["printer"]]
+    out = []
+    for i, p in enumerate(raw or []):
+        if not isinstance(p, dict):
+            raise SettingsError(f"Printer number {i + 1} in config/settings.yaml is not set up right.")
+        p = {**_PRINTER_DEFAULTS, **p}
+        p["name"] = str(p.get("name") or f"Printer {i + 1}")
+        missing = [k for k in ("bed_x_mm", "bed_y_mm", "max_z_mm") if not p.get(k)]
+        if missing:
+            raise SettingsError(f"Printer '{p['name']}' in config/settings.yaml needs: {', '.join(missing)}.")
+        p["output"] = str(p["output"]).lower().lstrip(".")
+        if p["output"] not in PRINTER_OUTPUTS:
+            raise SettingsError(f"Printer '{p['name']}': output must be one of "
+                                f"{', '.join(PRINTER_OUTPUTS)} (it says '{p['output']}').")
+        if p["output"] == "gcode" and not p["profile"]:
+            raise SettingsError(f"Printer '{p['name']}' makes G-code, so it needs a profile "
+                                "(a PrusaSlicer .ini in config/printers/).")
+        out.append(p)
+    if not out:
+        raise SettingsError("No printer is set up in config/settings.yaml (see 'printers:').")
+    names = [p["name"] for p in out]
+    if len(set(names)) != len(names):
+        raise SettingsError("Two printers in config/settings.yaml have the same name.")
+    return out
+
+
+def get_printer(name: str | None = None) -> dict:
+    """The printer with this name; the first (default) one if the name is empty or unknown."""
+    ps = printers()
+    return next((p for p in ps if name and p["name"] == name), ps[0])
+
+
+if __name__ == "__main__":
+    raise SystemExit(check())

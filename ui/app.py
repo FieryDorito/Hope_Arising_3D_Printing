@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pipeline.agents import AgentError, get_agent  # noqa: E402
 from pipeline.cad import preview_mesh  # noqa: E402
-from pipeline.config import ROOT, settings  # noqa: E402
+from pipeline.config import ROOT, printers, settings  # noqa: E402
 from pipeline.drives import DriveError, copy_to_drive, list_removable  # noqa: E402
 from pipeline.history import (DEFAULT_STATUS, STATUSES, PastJob, list_jobs, load_job,  # noqa: E402
                               save_order)
@@ -36,6 +36,7 @@ from pipeline.run_job import JobRequest, format_duration, make_gcode, prepare  #
 from pipeline.sheet import apply_update, check_for_updates, sheet_edit_url  # noqa: E402
 
 S = settings()
+PRINTERS = {p["name"]: p for p in printers()}
 PAGES = ["Make a print", "Past prints", "Library setup"]
 STEPS = ["Find the part", "Options and size", "Check the part", "Save and print"]
 KEEP_PREFIXES = ("p_", "sel_", "cnt_", "one_")      # the order's settings (see below)
@@ -164,10 +165,12 @@ def how_to_use() -> None:
 # Streamlit forgets a box's value when the box is not on screen. Each step is its own
 # screen, so the order's settings are saved again at the start of every run.
 for _k in list(ss.keys()):
-    if _k in ("material", "strength") or str(_k).startswith(KEEP_PREFIXES):
+    if _k in ("material", "strength", "printer") or str(_k).startswith(KEEP_PREFIXES):
         ss[_k] = ss[_k]
 ss.setdefault("material", next(iter(S["materials"])))
 ss.setdefault("strength", next(iter(S["strength"])))
+if ss.get("printer") not in PRINTERS:                  # first run, or the printer was removed
+    ss.printer = next(iter(PRINTERS))
 ss.setdefault("step", 1)
 ss.setdefault("page", PAGES[0])
 
@@ -192,7 +195,7 @@ def sel_keys(part: Part):
 
 def choose(part_id: str, params: dict | None = None, material: str | None = None,
            strength: str | None = None, options: list[str] | None = None,
-           files: dict | None = None) -> None:
+           files: dict | None = None, printer: str | None = None) -> None:
     """Load a part (and optionally earlier settings) into the order, then go to step 2."""
     part = get_part(parts, part_id)
     ss.part_id = part_id
@@ -217,6 +220,8 @@ def choose(part_id: str, params: dict | None = None, material: str | None = None
         ss.material = material
     if strength in S["strength"]:
         ss.strength = strength
+    if printer in PRINTERS:
+        ss.printer = printer
     ss.step = 2
 
 
@@ -241,11 +246,11 @@ def current_request(part: Part) -> JobRequest:
     sug = ss.suggestion if ss.suggestion and ss.suggestion.get("part_id") == part.part_id else None
     return JobRequest(part.part_id, params_from_state(part), ss.material, ss.strength,
                       files=files_from_state(part), customer_request=sug["text"] if sug else "",
-                      ai_suggestion=sug.get("raw") if sug else None)
+                      ai_suggestion=sug.get("raw") if sug else None, printer=ss.printer)
 
 
 def req_sig(req: JobRequest) -> str:
-    return json.dumps([req.part_id, req.params, req.material, req.strength, req.files],
+    return json.dumps([req.part_id, req.params, req.material, req.strength, req.files, req.printer],
                       sort_keys=True, default=str)
 
 
@@ -373,7 +378,7 @@ def settings_text(part: Part | None, params: dict) -> str:
 
 # ---------------------------------------------------------------- ways to get the file to the printer
 
-def save_to_card(files: list[Path], key: str) -> None:
+def save_to_card(files: list[Path], key: str, then: str = "put it in the printer") -> None:
     """Write the print files straight onto an SD card / USB stick plugged into this computer."""
     drives = list_removable()
     if not drives:
@@ -392,7 +397,7 @@ def save_to_card(files: list[Path], key: str) -> None:
             with st.spinner("Saving to the card…"):
                 written = copy_to_drive(files, d.path)
             ss[f"saved_{key}"] = (f"Saved to {d.name}: " + ", ".join(w.name for w in written)
-                                  + ". You can take the card out now and put it in the printer.")
+                                  + f". You can take the card out now and {then}.")
         except DriveError as e:
             ss.pop(f"saved_{key}", None)
             st.error(str(e))
@@ -405,7 +410,7 @@ def send_wifi(files: list[Path], key: str) -> None:
     if not printers:
         st.button("📡 Send to a Wi-Fi printer", key=f"wifi_{key}", disabled=True,
                   help="Coming later. A maintainer can add Wi-Fi printers in config/settings.yaml.")
-        st.caption("No Wi-Fi printer is set up yet. Ender 3 printers use the SD card.")
+        st.caption("No Wi-Fi printer is set up yet. Use the SD card for now.")
         return
     names = [p.name for p in printers]
     pick = st.selectbox("Printer", names, key=f"wifi_pick_{key}")
@@ -426,8 +431,21 @@ def send_wifi(files: list[Path], key: str) -> None:
 
 def download_buttons(files: list[Path], key: str) -> None:
     for i, f in enumerate(files):
+        mime = "model/3mf" if f.suffix == ".3mf" else "text/plain"
         st.download_button(f"⬇️ Download {f.name}", data=f.read_bytes(), file_name=f.name,
-                           mime="text/plain", key=f"dl_{key}_{i}")
+                           mime=mime, key=f"dl_{key}_{i}")
+
+
+def open_in_slicer(files: list[Path], printer: dict, key: str) -> None:
+    """For printers that print from their own slicer (Bambu Lab, ...): hand over the .3mf."""
+    app = printer.get("slicer_app") or "the printer's own slicer"
+    st.markdown(f"This printer prints from **{app}**, not from a file made here.  \n"
+                f"1. Download the file below (or find it in **{files[0].parent}**).  \n"
+                f"2. Open it in {app}. If it asks, load **geometry only**.  \n"
+                f"3. Pick the **{printer['name']}** and the filament, press **Slice**, then **Print**.")
+    download_buttons(files, key)
+    with st.expander(f"{app[0].upper() + app[1:]} is on another computer"):
+        save_to_card(files, key, then=f"open the file in {app} on the other computer")
 
 
 # ---------------------------------------------------------------- page: make a print
@@ -523,6 +541,12 @@ def step2(part: Part) -> None:
             st.markdown(f"{name}finished size **{x * k:.0f} × {y * k:.0f} × {z * k:.0f} mm** "
                         "(width × depth × height)")
     with right:
+        if len(PRINTERS) > 1:
+            pr = st.radio("Printer", list(PRINTERS), key="printer",
+                          help="The part is checked against this printer's bed, and the print file "
+                               "is made for this printer.")
+            if PRINTERS[pr].get("note"):
+                st.caption(PRINTERS[pr]["note"])
         material = st.radio("Material", list(S["materials"]), key="material", horizontal=True)
         st.caption(S["materials"][material].get("note", ""))
         strength = st.radio("Strength", list(S["strength"]), key="strength", horizontal=True)
@@ -571,7 +595,7 @@ def step3(part: Part) -> None:
         x, y, z = pc.model.size_mm
         c2.metric(f"{pc.count} × {pc.label}" if len(job.pieces) > 1 or pc.count > 1 else "Width × depth × height",
                   f"{x:.0f} × {y:.0f} × {z:.0f} mm")
-    c2.markdown(f"**{ss.material}** · {ss.strength}")
+    c2.markdown(f"**{ss.material}** · {ss.strength}" + (f" · {ss.printer}" if len(PRINTERS) > 1 else ""))
     c2.caption("Drag the picture to turn it. Check the sizes match what the customer needs.")
     for e in ss.get("slice_errors") or []:
         st.error(e)
@@ -616,10 +640,18 @@ def order_form(folder: Path, key: str, with_status: bool) -> None:
 def step4(part: Part) -> None:
     job = fresh_job(part)
     step(4, f"Save and print — {part.name}")
+    printer = job.printer
+    own_slicer = printer["output"] == "3mf"
+    about = "About " if own_slicer else ""
     m1, m2, m3 = st.columns(3)
-    m1.metric("Print time", format_duration(job.print_time_s))
+    m1.metric(f"{about}print time", format_duration(job.print_time_s))
     m2.metric("Plastic", f"{job.filament_g:.0f} g" if job.filament_g else "—")
     m3.metric("Plastic cost", f"{job.cost:.0f} {S['currency']}" if job.cost is not None else "—")
+    if own_slicer:
+        st.caption(f"Estimates. {printer.get('slicer_app') or 'The printer software'} shows the exact numbers.")
+    for w in job.warnings:
+        if "estimate" in w:
+            st.warning(w)
     if job.print_time_s and job.print_time_s > 2 * 3600:
         st.warning("This is a long print. Make sure the generator is ready in case the power goes off.")
     gcodes = [pl.result.gcode for pl in job.plates]
@@ -636,12 +668,16 @@ def step4(part: Part) -> None:
     st.markdown("#### Who is this for? (optional)")
     order_form(job.folder, f"new_{job.folder.name}", with_status=False)
 
-    st.markdown("#### Send it to the printer")
-    save_to_card(gcodes, f"new_{job.folder.name}")
-    st.caption(f"Load **{ss.material}** filament before you start the print.")
-    with st.expander("Other ways to get the file"):
-        send_wifi(gcodes, f"new_{job.folder.name}")
-        download_buttons(gcodes, f"new_{job.folder.name}")
+    st.markdown(f"#### Send it to the printer — {printer['name']}")
+    if own_slicer:
+        open_in_slicer(gcodes, printer, f"new_{job.folder.name}")
+        st.caption(f"Load **{ss.material}** filament before you start the print.")
+    else:
+        save_to_card(gcodes, f"new_{job.folder.name}")
+        st.caption(f"Load **{ss.material}** filament before you start the print.")
+        with st.expander("Other ways to get the file"):
+            send_wifi(gcodes, f"new_{job.folder.name}")
+            download_buttons(gcodes, f"new_{job.folder.name}")
 
     st.divider()
     c1, c2 = st.columns(2)
@@ -665,7 +701,7 @@ STATUS_ICON = {"Waiting to print": "⏳", "Printing": "🖨️", "Done": "✅", 
 
 
 def reopen(j: PastJob) -> None:
-    choose(j.part_id, j.params, j.material, j.strength, files=j.files)
+    choose(j.part_id, j.params, j.material, j.strength, files=j.files, printer=j.printer or None)
     ss.page = PAGES[0]
 
 
@@ -699,19 +735,25 @@ def page_past_prints() -> None:
             a, b = st.columns([3, 2])
             with a:
                 st.markdown(settings_text(part, j.params))
-                st.markdown(f"{j.material} · {j.strength} · {format_duration(j.print_time_s)}"
+                st.markdown((f"{j.printer} · " if j.printer else "")
+                            + f"{j.material} · {j.strength} · {format_duration(j.print_time_s)}"
                             + (f" · {j.cost:.0f} {S['currency']} plastic" if j.cost is not None else ""))
                 if j.customer_request:
                     st.caption(f"Customer asked for: “{j.customer_request}”")
                 k = j.folder.name
-                save_to_card(j.gcodes, f"past_{k}")
+                if j.output == "3mf":
+                    pr = PRINTERS.get(j.printer) or {"name": j.printer or "printer", "slicer_app": ""}
+                    open_in_slicer(j.gcodes, pr, f"past_{k}")
+                else:
+                    save_to_card(j.gcodes, f"past_{k}")
                 c1, c2 = st.columns(2)
                 c1.button("✏️ Change and print again", key=f"reopen_{k}", on_click=reopen, args=(j,),
                           disabled=not (part and part.printable), width="stretch",
                           help="Opens this order at step 2 with the same settings, so you can fix the size.")
-                with c2.popover("More", width="stretch"):
-                    send_wifi(j.gcodes, f"past_{k}")
-                    download_buttons(j.gcodes, f"past_{k}")
+                if j.output != "3mf":
+                    with c2.popover("More", width="stretch"):
+                        send_wifi(j.gcodes, f"past_{k}")
+                        download_buttons(j.gcodes, f"past_{k}")
             with b:
                 order_form(j.folder, f"past_{j.folder.name}", with_status=True)
     if len(shown) > ss.past_limit:
@@ -843,7 +885,7 @@ with st.sidebar:
     waiting = sum(1 for p in parts if p.commercial_ok and (not p.files or p.needs_setup))
     if waiting:
         st.caption(f"{waiting} part(s) need files or setup → Library setup")
-    st.caption(f"Printer: {S['printer']['name']}")
+    st.caption(("Printers: " if len(PRINTERS) > 1 else "Printer: ") + ", ".join(PRINTERS))
     if ss.get("sheet_msg"):
         st.caption(("" if ss.get("sheet_ok") else "⚠️ ") + ss.sheet_msg)
 

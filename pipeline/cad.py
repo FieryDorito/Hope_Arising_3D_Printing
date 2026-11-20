@@ -88,8 +88,9 @@ def _scad_value(v) -> str:
     return '"' + str(v).replace('"', '\\"') + '"'
 
 
-def build_piece(part: Part, mf: ModelFile, params: dict, out_stl: Path) -> ModelInfo:
-    """Turn one model file of a part into a ready-to-slice STL."""
+def build_piece(part: Part, mf: ModelFile, params: dict, out_stl: Path,
+                printer: dict | None = None) -> ModelInfo:
+    """Turn one model file of a part into a ready-to-slice STL (turned to fit this printer's bed)."""
     out_stl.parent.mkdir(parents=True, exist_ok=True)
 
     if mf.kind == "scad":
@@ -112,7 +113,7 @@ def build_piece(part: Part, mf: ModelFile, params: dict, out_stl: Path) -> Model
     # Sit the piece on the bed and centre it at the origin; the slicer places it on the bed.
     lo, hi = mesh.bounds
     mesh.apply_translation([-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -lo[2]])
-    _turn_to_fit(mesh)
+    _turn_to_fit(mesh, printer)
 
     if not mesh.is_watertight:
         trimesh.repair.fill_holes(mesh)
@@ -128,11 +129,11 @@ def build_piece(part: Part, mf: ModelFile, params: dict, out_stl: Path) -> Model
     )
 
 
-def _turn_to_fit(mesh: trimesh.Trimesh) -> None:
+def _turn_to_fit(mesh: trimesh.Trimesh, printer: dict | None = None) -> None:
     """If the piece is too long for the bed as it is, turn it on the bed so it fits."""
     from .validate import bed_area
 
-    W, D = bed_area()
+    W, D = bed_area(printer)
     x, y = mesh.extents[:2]
     if (x <= W and y <= D) or (y <= W and x <= D):
         return
