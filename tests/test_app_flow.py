@@ -156,3 +156,33 @@ def test_bambu_order_with_orca_sends_over_wifi(app, monkeypatch, tmp_path):
     name = job.slice.gcode.name
     assert sent == [("up", name), ("start", name)]
     assert any("It is starting now" in s.value for s in at.success)
+
+
+@needs_tools
+def test_bambu_order_saves_to_flash_drive(app, monkeypatch, tmp_path):
+    """No Wi-Fi set up: the flash-drive option is right there on step 4 and writes the
+    ready .gcode.3mf onto the drive."""
+    from pipeline import config
+    from tests.test_orca import fake_orca
+    fake_orca(tmp_path, monkeypatch)
+    monkeypatch.setitem(config.settings(), "bambu_lan", {})
+    at = app
+    at.button(key=f"choose_{PART}").click().run()
+    at.radio(key="printer").set_value("Bambu Lab P2S").run()
+    button(at, "Next: check the part").click().run()
+    button(at, "Next: make print file").click().run()
+    assert not at.exception and at.session_state.step == 4, [e.value for e in at.error]
+    assert any("USB flash drive" in m.value for m in at.markdown)
+    assert not any(b.label.startswith("📡") for b in at.button)       # Wi-Fi not set up
+    button(at, "💾 Save").click().run()
+    assert any("Saved to SDCARD" in s.value for s in at.success)
+    on_drive = list(at.card.glob("*.gcode.3mf"))
+    assert len(on_drive) == 1 and on_drive[0].read_bytes() == at.session_state.job.slice.gcode.read_bytes()
+    # Past prints shows the same two ways for a Bambu job, and saving again works there too
+    for f in at.card.glob("*"):
+        f.unlink()
+    at.sidebar.radio(key="page").set_value("Past prints").run()
+    assert not at.exception
+    assert any("USB flash drive" in m.value for m in at.markdown)
+    button(at, "💾 Save").click().run()
+    assert not at.exception and len(list(at.card.glob("*.gcode.3mf"))) == 1
