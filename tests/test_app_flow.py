@@ -103,8 +103,13 @@ def test_full_order_flow(app):
 
 
 @needs_tools
-def test_bambu_order_gives_3mf_for_bambu_studio(app):
-    """Pick the Bambu P2S in step 2: step 4 hands over a .3mf with Bambu Studio steps, no G-code."""
+def test_bambu_order_without_orca_gives_3mf(app, monkeypatch):
+    """Pick the Bambu P2S in step 2 on a computer WITHOUT OrcaSlicer: step 4 explains, and
+    hands over a .3mf with Bambu Studio steps, no G-code."""
+    from pipeline import config
+    from pipeline.slicers import orcaslicer
+    monkeypatch.setattr(orcaslicer, "_candidates", lambda: [])
+    monkeypatch.setitem(config.settings(), "slicer", {**config.settings()["slicer"], "orca": ""})
     at = app
     at.button(key=f"choose_{PART}").click().run()
     at.radio(key="printer").set_value("Bambu Lab P2S").run()
@@ -113,8 +118,9 @@ def test_bambu_order_gives_3mf_for_bambu_studio(app):
     button(at, "Next: make print file").click().run()
     assert not at.exception and at.session_state.step == 4, [e.value for e in at.error]
     job = at.session_state.job
-    assert job.printer["name"] == "Bambu Lab P2S" and job.slice.gcode.suffix == ".3mf"
+    assert job.printer["name"] == "Bambu Lab P2S" and job.slice.gcode.suffixes == [".3mf"]
     assert any("Bambu Studio" in m.value for m in at.markdown)
+    assert any("not installed" in w.value for w in at.warning)
     assert not any(b.label.startswith("📡") for b in at.button), "no Wi-Fi G-code sending for Bambu"
 
     # Past prints remembers the printer, and "change and print again" keeps it
@@ -123,3 +129,30 @@ def test_bambu_order_gives_3mf_for_bambu_studio(app):
     assert any("Bambu Lab P2S" in m.value for m in at.markdown)
     button(at, "✏️ Change and print again").click().run()
     assert at.session_state.printer == "Bambu Lab P2S" and at.session_state.step == 2
+
+
+@needs_tools
+def test_bambu_order_with_orca_sends_over_wifi(app, monkeypatch, tmp_path):
+    """With OrcaSlicer (faked) and the printer's Wi-Fi details set: step 4 offers Send, and
+    pressing it uploads and starts the sliced .gcode.3mf."""
+    from pipeline import bambu_lan, config
+    from tests.test_orca import LAN, fake_orca
+    fake_orca(tmp_path, monkeypatch)
+    monkeypatch.setitem(config.settings(), "bambu_lan", {"Bambu Lab P2S": LAN})
+    sent = []
+    monkeypatch.setattr(bambu_lan, "upload", lambda lan, f: sent.append(("up", f.name)))
+    monkeypatch.setattr(bambu_lan, "start_print", lambda lan, name: sent.append(("start", name)))
+    at = app
+    at.button(key=f"choose_{PART}").click().run()
+    at.radio(key="printer").set_value("Bambu Lab P2S").run()
+    button(at, "Next: check the part").click().run()
+    button(at, "Next: make print file").click().run()
+    assert not at.exception and at.session_state.step == 4, [e.value for e in at.error]
+    job = at.session_state.job
+    assert job.output == "bambu" and job.slice.gcode.name.endswith(".gcode.3mf")
+    assert any("Sliced and ready" in s.value for s in at.success)
+    button(at, "📡 Send to Bambu Lab P2S").click().run()
+    assert not at.exception and not at.error, [e.value for e in at.error]
+    name = job.slice.gcode.name
+    assert sent == [("up", name), ("start", name)]
+    assert any("It is starting now" in s.value for s in at.success)

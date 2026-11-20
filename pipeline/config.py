@@ -46,7 +46,8 @@ def _find_keys(d, trail=""):
     if isinstance(d, dict):
         for k, v in d.items():
             here = f"{trail}.{k}" if trail else str(k)
-            if k == "api_key" and v and "paste-your" not in str(v) and not str(v).endswith("..."):
+            if k in ("api_key", "access_code") and v and "paste-your" not in str(v) \
+                    and not str(v).endswith("...") and not str(v).startswith("from-printer"):
                 yield here
             else:
                 yield from _find_keys(v, here)
@@ -58,8 +59,8 @@ def settings() -> dict:
     leaked = list(_find_keys(s))
     if leaked:
         raise SettingsError(
-            "An API key was typed into config/settings.yaml. That file is uploaded to GitHub, "
-            "where anyone could copy the key. Move the key into config/settings.local.yaml "
+            "An API key or printer access code was typed into config/settings.yaml. That file is "
+            "uploaded to GitHub, where anyone could copy it. Move it into config/settings.local.yaml "
             "(see settings.local.example.yaml) and remove it from settings.yaml.")
     local = CONFIG_DIR / "settings.local.yaml"
     if local.exists():
@@ -92,13 +93,15 @@ def path(rel: str | os.PathLike) -> Path:
 # ---------------------------------------------------------------- printers
 
 # What the app hands over for each kind of printer:
-#   gcode - the app slices the part itself (PrusaSlicer + the printer's .ini profile) and
-#           gives a .gcode for the SD card / Wi-Fi. Ender 3, Prusa, Klipper printers, ...
-#   3mf   - the app arranges the plate and gives a .3mf. The worker opens it in the printer's
-#           own slicer (Bambu Studio, ...) and prints from there. For printers that won't run
-#           plain G-code from a card, like Bambu Lab.
-PRINTER_OUTPUTS = ("gcode", "3mf")
-_PRINTER_DEFAULTS = {"margin_mm": 5, "output": "gcode", "profile": "", "slicer_app": "", "note": ""}
+#   gcode - a sliced .gcode for the SD card / Wi-Fi (Ender 3, Prusa, Klipper printers, ...)
+#   bambu - a sliced .gcode.3mf for Bambu Lab, which the app can also send over Wi-Fi
+#   3mf   - an arranged, NOT sliced .3mf: the worker slices it in the printer's own software
+# Slicing: OrcaSlicer with the printer's `orca_profiles` (a folder made by
+# tools/make_slicer_profiles.py) - works for most printers. If OrcaSlicer is missing,
+# gcode printers use PrusaSlicer with `profile` (an .ini) and bambu printers get a 3mf.
+PRINTER_OUTPUTS = ("gcode", "bambu", "3mf")
+_PRINTER_DEFAULTS = {"margin_mm": 5, "output": "gcode", "profile": "", "slicer_app": "", "note": "",
+                     "orca_profiles": ""}
 
 
 def printers() -> list[dict]:
@@ -123,9 +126,12 @@ def printers() -> list[dict]:
         if p["output"] not in PRINTER_OUTPUTS:
             raise SettingsError(f"Printer '{p['name']}': output must be one of "
                                 f"{', '.join(PRINTER_OUTPUTS)} (it says '{p['output']}').")
-        if p["output"] == "gcode" and not p["profile"]:
-            raise SettingsError(f"Printer '{p['name']}' makes G-code, so it needs a profile "
-                                "(a PrusaSlicer .ini in config/printers/).")
+        if p["output"] == "gcode" and not (p["profile"] or p["orca_profiles"]):
+            raise SettingsError(f"Printer '{p['name']}' makes G-code, so it needs orca_profiles "
+                                "(made by tools/make_slicer_profiles.py) or a PrusaSlicer profile.")
+        if p["output"] == "bambu" and not p["orca_profiles"]:
+            raise SettingsError(f"Printer '{p['name']}' is sliced with OrcaSlicer, so it needs "
+                                "orca_profiles (a folder made by tools/make_slicer_profiles.py).")
         out.append(p)
     if not out:
         raise SettingsError("No printer is set up in config/settings.yaml (see 'printers:').")
