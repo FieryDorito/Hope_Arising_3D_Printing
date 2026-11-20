@@ -39,6 +39,9 @@ jobs:
       - name: Slice with the real OrcaSlicer
         env: {ORCA_ARTIFACT_DIR: "${{ runner.temp }}/sliced"}
         run: xvfb-run -a python -m pytest -v tests/test_orca.py -k real_orca
+      - name: What OrcaSlicer made
+        if: always()
+        run: python tools/describe_print_file.py ${{ runner.temp }}/sliced/* || true
       - uses: actions/upload-artifact@v4
         if: always()
         with: {name: orca-sliced-files, path: "${{ runner.temp }}/sliced", if-no-files-found: warn}
