@@ -34,8 +34,8 @@ def describe(f: Path) -> None:
                 mx, my = re.search(r"X([-\d.]+)", ln), re.search(r"Y([-\d.]+)", ln)
                 if mx and my:
                     xs.append(float(mx.group(1))); ys.append(float(my.group(1))); zs.append(z)
-    temps = sorted(set(re.findall(r"^M10[49]\b[^;\n]*?\bS(\d+)", text, re.M)))
-    beds = sorted(set(re.findall(r"^M1[49]0\b[^;\n]*?\bS(\d+)", text, re.M)))
+    temps = sorted(set(re.findall(r"^\s*M10[49]\b[^;\n]*?\bS(\d+)", text, re.M)))
+    beds = sorted(set(re.findall(r"^\s*M1[49]0\b[^;\n]*?\bS(\d+)", text, re.M)))
     print(f"\n=== {f.name}  ({f.stat().st_size // 1024} KB)")
     if names:
         print("  inside:", ", ".join(n for n in names if n.startswith("Metadata/") and not n.endswith(".png"))[:400])

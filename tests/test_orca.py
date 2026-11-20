@@ -335,7 +335,7 @@ def test_real_orca_strong_uses_more_plastic(test_library, real_orca):
 
 
 def _bed_temps(gcode: str) -> set[str]:
-    return set(re.findall(r"^M1[49]0\b[^;\n]*?\bS(\d+)", gcode, re.M)) - {"0"}
+    return set(re.findall(r"^\s*M1[49]0\b[^;\n]*?\bS(\d+)", gcode, re.M)) - {"0"}
 
 
 @pytest.mark.skipif(not _real_orca(), reason="OrcaSlicer not installed")
