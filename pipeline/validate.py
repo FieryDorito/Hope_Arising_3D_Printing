@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from .config import settings
+from .config import get_printer, printers, settings
 from .library import Part
 
 MAX_COPIES = 50
@@ -27,7 +27,7 @@ class Check:
 
 
 def check_request(part: Part | None, params: dict, material: str, strength: str,
-                  files: dict[str, int] | None = None) -> Check:
+                  files: dict[str, int] | None = None, printer: str = "") -> Check:
     s = settings()
     c = Check()
     if part is None:
@@ -41,6 +41,9 @@ def check_request(part: Part | None, params: dict, material: str, strength: str,
         c.errors.append(f"Unknown material '{material}'.")
     if strength not in s["strength"]:
         c.errors.append(f"Unknown strength '{strength}'.")
+    if printer and printer not in [p["name"] for p in printers()]:
+        c.errors.append(f"Unknown printer '{printer}'.")
+    pr = get_printer(printer)
 
     for spec in part.params:
         raw = params.get(spec.name, spec.default)
@@ -89,19 +92,20 @@ def check_request(part: Part | None, params: dict, material: str, strength: str,
         mf = part.file(rel)
         if mf and mf.kind == "mesh" and mf.size_mm:
             c.errors += [f"{mf.label}: {e}" if len(c.files) > 1 else e
-                         for e in check_fits([d * k for d in mf.size_mm])]
+                         for e in check_fits([d * k for d in mf.size_mm], pr)]
     return c
 
 
-def bed_area() -> tuple[float, float]:
-    p = settings()["printer"]
+def bed_area(printer: dict | None = None) -> tuple[float, float]:
+    """Usable bed (x, y) in mm of this printer (default printer if None), margins taken off."""
+    p = printer or get_printer()
     m = 2 * p["margin_mm"]
     return p["bed_x_mm"] - m, p["bed_y_mm"] - m
 
 
-def fit_angle(x: float, y: float) -> float | None:
+def fit_angle(x: float, y: float, printer: dict | None = None) -> float | None:
     """Angle (degrees) at which an x-by-y footprint fits the bed; 0 if it fits as is; None if never."""
-    W, D = bed_area()
+    W, D = bed_area(printer)
     if (x <= W and y <= D) or (y <= W and x <= D):
         return 0.0
     for deg in range(5, 90, 5):  # turn it diagonally (a box's corners are the worst case)
@@ -111,13 +115,13 @@ def fit_angle(x: float, y: float) -> float | None:
     return None
 
 
-def check_fits(size_mm) -> list[str]:
-    p = settings()["printer"]
+def check_fits(size_mm, printer: dict | None = None) -> list[str]:
+    p = printer or get_printer()
     x, y, z = size_mm
-    W, D = bed_area()
+    W, D = bed_area(p)
     errs = []
-    if fit_angle(x, y) is None:
-        errs.append(f"Part is too big for the printer bed ({x:.0f} x {y:.0f} mm; "
+    if fit_angle(x, y, p) is None:
+        errs.append(f"Part is too big for the {p['name']} bed ({x:.0f} x {y:.0f} mm; "
                     f"max {W:.0f} x {D:.0f} mm). Make it smaller.")
     if z > p["max_z_mm"]:
         errs.append(f"Part is too tall ({z:.0f} mm; max {p['max_z_mm']} mm). Make it smaller.")

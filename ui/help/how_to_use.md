@@ -12,6 +12,8 @@ You can always click an earlier step to go back and change something.
 - Measure the customer's item **with a ruler or calipers**, in millimetres.
 - Each box says what it measures. Read it carefully: *inside* and *outside* diameter are different.
 - If the AI shows **Ask the customer**, ask that question before you go on.
+- If there is more than one printer, pick the **printer** you will use. The app checks the
+  part fits that printer.
 - Pick the **material**: PLA for everyday indoor parts, PETG for water, heat or sun.
 - Pick the **strength**: Strong for parts that hold weight (hooks, clamps, hinges).
 - Press **Next: check the part**.
@@ -25,6 +27,8 @@ You can always click an earlier step to go back and change something.
 - Put the SD card in the computer and press **Save to card**.
 - When it says it is done, take the card out, put it in the printer, load the right
   filament, and choose the file on the printer screen.
+- **Bambu Lab printers** don't use a file from this app directly. Press **Download**,
+  open the file in **Bambu Studio**, pick the printer and filament, press **Slice**, then **Print**.
 
 ### Past prints
 

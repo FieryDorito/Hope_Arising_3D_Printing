@@ -100,3 +100,26 @@ def test_full_order_flow(app):
     at.button(key="nav_1").click().run()
     button(at, "Start a new order").click().run()
     assert at.session_state.step == 1 and at.session_state.part_id is None
+
+
+@needs_tools
+def test_bambu_order_gives_3mf_for_bambu_studio(app):
+    """Pick the Bambu P2S in step 2: step 4 hands over a .3mf with Bambu Studio steps, no G-code."""
+    at = app
+    at.button(key=f"choose_{PART}").click().run()
+    at.radio(key="printer").set_value("Bambu Lab P2S").run()
+    button(at, "Next: check the part").click().run()
+    assert not at.exception and at.session_state.step == 3, [e.value for e in at.error]
+    button(at, "Next: make print file").click().run()
+    assert not at.exception and at.session_state.step == 4, [e.value for e in at.error]
+    job = at.session_state.job
+    assert job.printer["name"] == "Bambu Lab P2S" and job.slice.gcode.suffix == ".3mf"
+    assert any("Bambu Studio" in m.value for m in at.markdown)
+    assert not any(b.label.startswith("📡") for b in at.button), "no Wi-Fi G-code sending for Bambu"
+
+    # Past prints remembers the printer, and "change and print again" keeps it
+    at.sidebar.radio(key="page").set_value("Past prints").run()
+    assert not at.exception
+    assert any("Bambu Lab P2S" in m.value for m in at.markdown)
+    button(at, "✏️ Change and print again").click().run()
+    assert at.session_state.printer == "Bambu Lab P2S" and at.session_state.step == 2

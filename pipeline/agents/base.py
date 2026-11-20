@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-from ..config import settings
+from ..config import printers, settings
 from ..library import Part
 
 
@@ -81,5 +81,6 @@ def library_brief(parts: list[Part]) -> str:
         "library": items,
         "materials": {k: v.get("note", "") for k, v in s["materials"].items()},
         "strength": {k: v.get("note", "") for k, v in s["strength"].items()},
-        "printer_bed_mm": [s["printer"]["bed_x_mm"], s["printer"]["bed_y_mm"], s["printer"]["max_z_mm"]],
+        # The biggest bed the shop has; the app still checks the bed of the printer the worker picks.
+        "printer_bed_mm": [max(p[k] for p in printers()) for k in ("bed_x_mm", "bed_y_mm", "max_z_mm")],
     }, indent=1)

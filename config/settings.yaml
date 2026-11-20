@@ -10,14 +10,39 @@ library:
   catalog_csv: models/sources.csv
   models_dir: models
 
-printer:
-  name: Creality Ender 3
-  profile: config/printers/ender3.ini
-  bed_x_mm: 220
-  bed_y_mm: 220
-  max_z_mm: 250
-  # Keep parts this far from the bed edges.
-  margin_mm: 5
+# Every printer the shop (or a student) can print on. The first one is picked by default.
+# The worker chooses the printer in step 2, and the app checks the part fits THAT bed.
+#
+#   output: gcode  The app slices the part and gives a .gcode for the SD card / Wi-Fi.
+#                  Needs `profile`: a PrusaSlicer .ini made for that printer (see config/printers/).
+#                  Use for Ender 3 and other Marlin printers, Prusa, and Klipper printers.
+#   output: 3mf    The app arranges the plate and gives a .3mf. The worker opens it in the
+#                  printer's own slicer (`slicer_app`), slices and prints from there.
+#                  Use for printers that won't run plain G-code from a card, like Bambu Lab.
+#                  `profile` is optional here and only used to estimate time, plastic and cost.
+#
+# Adding a printer: copy one entry, change the name and bed size, and (for gcode) make its
+# .ini by exporting "Printer settings" from PrusaSlicer into config/printers/. Then run pytest.
+printers:
+  - name: Creality Ender 3
+    output: gcode
+    profile: config/printers/ender3.ini
+    bed_x_mm: 220
+    bed_y_mm: 220
+    max_z_mm: 250
+    # Keep parts this far from the bed edges.
+    margin_mm: 5
+    note: Save to the SD card and put it in the printer.
+
+  - name: Bambu Lab P2S
+    output: 3mf
+    slicer_app: Bambu Studio
+    profile: config/printers/bambu_p2s_estimate.ini   # estimates only, never sent to the printer
+    bed_x_mm: 256
+    bed_y_mm: 256
+    max_z_mm: 256
+    margin_mm: 5
+    note: Open the file in Bambu Studio, then print from there.
 
 materials:
   # key: what the operator sees. price is per kg in Ethiopian Birr (update from Robox catalog).
