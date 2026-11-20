@@ -46,7 +46,7 @@ def _find_keys(d, trail=""):
     if isinstance(d, dict):
         for k, v in d.items():
             here = f"{trail}.{k}" if trail else str(k)
-            if k in ("api_key", "access_code") and v and "paste-your" not in str(v) \
+            if k in ("api_key", "access_code", "app_password") and v and "paste-your" not in str(v) \
                     and not str(v).endswith("...") and not str(v).startswith("from-printer"):
                 yield here
             else:

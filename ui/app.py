@@ -12,7 +12,9 @@ On start-up the Google Sheet is checked once; changes pop up with what to do.
 """
 from __future__ import annotations
 
+import hmac
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -70,6 +72,26 @@ def library(version: int):
 
 
 ss = st.session_state
+
+
+def password_gate() -> None:
+    """If a password is set (APP_PASSWORD, or app_password in settings.local.yaml), ask for it
+    before showing anything. For when the app is shared as a link, e.g. with testers."""
+    pw = str(os.environ.get("APP_PASSWORD") or S.get("app_password") or "")
+    if not pw or ss.get("pw_ok"):
+        return
+    st.title("🖨️ Hope Arising Print Shop")
+    with st.form("login"):
+        tried = st.text_input("Password", type="password")
+        if st.form_submit_button("Open", type="primary"):
+            if hmac.compare_digest(tried.encode(), pw.encode()):
+                ss.pw_ok = True
+                st.rerun()
+            st.error("That password isn't right.")
+    st.stop()
+
+
+password_gate()
 ss.setdefault("lib_version", 0)
 ss.setdefault("part_id", None)
 ss.setdefault("job", None)

@@ -85,6 +85,17 @@ password, so it never goes in `settings.yaml` (the app refuses to start if it do
 **Send to <printer>**: the file is uploaded (FTPS) and the print started (MQTT). The computer must be on the
 same network as the printer, so this doesn't work from GitHub Codespaces.
 
+## Sharing a test link
+
+To let others try the app, set a password first, or anyone with the link can use it (and your AI key):
+add `app_password: "..."` to `config/settings.local.yaml` (or set the `APP_PASSWORD` environment
+variable), then restart. Everyone gets a password screen first.
+
+**From a Codespace:** start the app, open the **Ports** tab, right-click port **8501** → **Port
+Visibility** → **Public**, and copy the link from the **Forwarded Address** column. It works while the
+Codespace is running. Testers can make and download print files, but USB saving and Wi-Fi sending only
+work on a computer next to the printers.
+
 ## Rules that keep it reliable
 
 - The AI only **chooses a part and fills in numbers**. Every value is checked against `min`/`max` in `validate.py` before anything is built.

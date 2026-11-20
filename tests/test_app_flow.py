@@ -186,3 +186,22 @@ def test_bambu_order_saves_to_flash_drive(app, monkeypatch, tmp_path):
     assert any("USB flash drive" in m.value for m in at.markdown)
     button(at, "💾 Save").click().run()
     assert not at.exception and len(list(at.card.glob("*.gcode.3mf"))) == 1
+
+
+def test_password_gate(monkeypatch):
+    """With a password set, nothing is shown until the right password is typed."""
+    from streamlit.testing.v1 import AppTest
+    monkeypatch.setenv("APP_PASSWORD", "open-sesame")
+    at = AppTest.from_file(str(Path(__file__).resolve().parent.parent / "ui" / "app.py"), default_timeout=60)
+    at.run()
+    assert not at.exception
+    assert len(at.text_input) == 1 and not at.session_state.get("pw_ok")
+    assert not any("Find the part" in m.value for m in at.markdown)
+    at.text_input[0].input("wrong")
+    at.button[0].click().run()
+    assert any("isn't right" in e.value for e in at.error) and not at.session_state.get("pw_ok")
+    at.text_input[0].input("open-sesame")
+    at.button[0].click().run()
+    assert not at.exception and at.session_state.pw_ok
+    assert not any(t.label == "Password" for t in at.text_input)
+    assert any("Find the part" in m.value for m in at.markdown)
