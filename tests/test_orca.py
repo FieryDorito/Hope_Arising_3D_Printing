@@ -361,3 +361,19 @@ def test_ftps_upload_to_fake_printer(tmp_path, monkeypatch):
             bambu_lan.upload(bambu_lan.BambuLan(P2S, "127.0.0.1", "S", "00000000"), f, timeout=10)
     finally:
         srv.close()
+
+
+@pytest.mark.skipif(not _real_orca(), reason="OrcaSlicer not installed")
+@pytest.mark.parametrize("printer", [P2S, ENDER])
+def test_real_orca_library_part_with_many_pieces(real_orca, printer):
+    """A real shop part with several different pieces on one plate."""
+    from pipeline.library import load_catalog
+    parts = load_catalog(ROOT / "models" / "sources.csv", ROOT / "models")
+    p = next(p for p in parts if p.part_id == "travel-salt-shaker")
+    job = run_job(JobRequest(p.part_id, {}, "PLA", "Normal", files={f.rel: 1 for f in p.files}, printer=printer),
+                  parts)
+    log = "\n".join(f.read_text(errors="ignore")[-2000:] for f in job.folder.glob("*.log"))
+    assert job.ok and job.slicer_used == "orcaslicer", (job.errors, job.warnings, log)
+    assert job.filament_g > 5 and job.print_time_s > 600
+    for pl in job.plates:
+        _save_artifact(pl.result.gcode)

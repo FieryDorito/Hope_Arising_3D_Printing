@@ -62,13 +62,15 @@ strength:
     profile: config/process/standard.ini
     note: Most household parts.
     # The same changes for OrcaSlicer (on top of each printer's own OrcaSlicer settings).
+    # Normal supports, not tree: trees grow sideways and can run into the next piece on the
+    # plate, and OrcaSlicer then refuses to slice ("G-code conflicts").
     orca: {wall_loops: 3, sparse_infill_density: 20%, top_shell_layers: 5, bottom_shell_layers: 4,
-            enable_support: 1, support_type: tree(auto)}
+            enable_support: 1, support_type: normal(auto)}
   Strong:
     profile: config/process/strong.ini
     note: Parts that carry weight (hooks, brackets, hinges). Uses more plastic.
     orca: {wall_loops: 5, sparse_infill_density: 50%, top_shell_layers: 6, bottom_shell_layers: 6,
-            enable_support: 1, support_type: tree(auto)}
+            enable_support: 1, support_type: normal(auto)}
 
 slicer:
   # OrcaSlicer is used for every printer with orca_profiles. This older slicer is the

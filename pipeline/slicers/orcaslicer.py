@@ -26,6 +26,19 @@ from .base import SliceResult, SlicerError
 
 FLATPAK_ID = "io.github.softfever.OrcaSlicer"
 
+# The OrcaSlicer command line's own error numbers (src/libslic3r/Utils.hpp), in plain words.
+CLI_ERRORS = {
+    -5: "the printer settings files could not be read",
+    -17: "the print settings don't belong to this printer",
+    -50: "there is nothing on the plate that can be printed",
+    -51: "the settings don't work together",
+    -52: "a piece is partly off the bed",
+    -100: "slicing failed",
+    -101: "the pieces are too close together (their paths run into each other). "
+          "Print fewer copies at once",
+    -102: "part of the print is outside the area the printer can reach",
+}
+
 
 def _candidates() -> list[list[str]]:
     out: list[list[str]] = []
@@ -163,7 +176,9 @@ class OrcaSlicer:
             result = alt[0] if alt else result
         if r.returncode != 0 or not result.exists() or not plate_gcode_name(result):
             tail = (r.stderr or r.stdout)[-600:]
-            raise SlicerError(f"OrcaSlicer could not slice this part (exit {r.returncode}).\n{tail}")
+            code = r.returncode - 256 if r.returncode > 127 else r.returncode
+            why = CLI_ERRORS.get(code, f"exit {r.returncode}")
+            raise SlicerError(f"OrcaSlicer could not slice this part: {why}\n{tail}")
         shutil.move(str(result), out)
         shutil.rmtree(work, ignore_errors=True)
         t, g, m = read_3mf_stats(out)
