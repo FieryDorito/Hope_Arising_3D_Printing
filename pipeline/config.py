@@ -100,8 +100,11 @@ def path(rel: str | os.PathLike) -> Path:
 # tools/make_slicer_profiles.py) - works for most printers. If OrcaSlicer is missing,
 # gcode printers use PrusaSlicer with `profile` (an .ini) and bambu printers get a 3mf.
 PRINTER_OUTPUTS = ("gcode", "bambu", "3mf")
+# OrcaSlicer's names for build plates. Each filament profile has a bed temperature per plate.
+BED_TYPES = ("Cool Plate", "Engineering Plate", "High Temp Plate", "Textured PEI Plate",
+             "Textured Cool Plate", "Supertack Plate")
 _PRINTER_DEFAULTS = {"margin_mm": 5, "output": "gcode", "profile": "", "slicer_app": "", "note": "",
-                     "orca_profiles": ""}
+                     "orca_profiles": "", "bed_type": ""}
 
 
 def printers() -> list[dict]:
@@ -129,6 +132,9 @@ def printers() -> list[dict]:
         if p["output"] == "gcode" and not (p["profile"] or p["orca_profiles"]):
             raise SettingsError(f"Printer '{p['name']}' makes G-code, so it needs orca_profiles "
                                 "(made by tools/make_slicer_profiles.py) or a PrusaSlicer profile.")
+        if p["orca_profiles"] and p["bed_type"] not in BED_TYPES:
+            raise SettingsError(f"Printer '{p['name']}': bed_type must be one of {', '.join(BED_TYPES)} "
+                                "(the build plate on the printer; it sets the bed temperature).")
         if p["output"] == "bambu" and not p["orca_profiles"]:
             raise SettingsError(f"Printer '{p['name']}' is sliced with OrcaSlicer, so it needs "
                                 "orca_profiles (a folder made by tools/make_slicer_profiles.py).")

@@ -2,6 +2,7 @@
 it's missing, the profile tool, and sending to Bambu printers over Wi-Fi (printer faked)."""
 import json
 import os
+import re
 import shutil
 import stat
 import sys
@@ -32,6 +33,7 @@ p = json.load(open(process))
 log = Path({log!r})
 calls = json.loads(log.read_text()) if log.exists() else []
 calls.append({{"argv": a, "process": p, "machine": json.load(open(machine))["name"],
+              "bed": next((x.split("=", 1)[1] for x in a if x.startswith("--curr-bed-type=")), None),
               "filament": json.load(open(opt("--load-filaments")))["name"]}})
 log.write_text(json.dumps(calls))
 if {fail}:
@@ -81,6 +83,7 @@ def test_p2s_job_is_sliced_into_ready_gcode_3mf(test_library, tmp_path, monkeypa
     assert job.cost == round(12.5 / 1000 * config.settings()["materials"]["PLA"]["price_per_kg"], 2)
     [call] = json.loads(log.read_text())
     assert call["machine"] == "Bambu Lab P2S 0.4 nozzle" and call["filament"] == "Generic PLA @BBL P2S"
+    assert call["bed"] == "Textured PEI Plate"
     assert call["process"]["wall_loops"] == "5" and call["process"]["sparse_infill_density"] == "50%"
     assert "--slice" in call["argv"] and "--arrange" in call["argv"]
     assert json.loads((job.folder / "job.json").read_text())["output"] == "bambu"
@@ -109,6 +112,7 @@ def test_ender_is_sliced_by_orca_into_plain_gcode(test_library, tmp_path, monkey
     assert text.startswith("; Hope Arising 3D Print Shop") and "sliced by fake orca" in text
     [call] = json.loads(log.read_text())
     assert call["machine"] == "Creality Ender-3 0.4 nozzle" and call["filament"] == "Generic PLA @Creality"
+    assert call["bed"] == "High Temp Plate"
     assert not list(job.folder.glob("*.3mf")), "Ender gets G-code only"
     assert list_jobs(job.folder.parent)[0].output == "gcode"
 
@@ -321,7 +325,6 @@ def test_real_orca_slices_p2s(test_library, real_orca, strength):
     assert "M1002" in gcode, "Bambu's own P2S start code should be in the file"
     assert job.print_time_s and job.print_time_s > 60 and job.filament_g and job.filament_g > 1
     _save_artifact(job.slice.gcode)
-    return job
 
 
 @pytest.mark.skipif(not _real_orca(), reason="OrcaSlicer not installed")
@@ -331,15 +334,29 @@ def test_real_orca_strong_uses_more_plastic(test_library, real_orca):
     assert g["Strong"] > g["Normal"] * 1.1, g
 
 
+def _bed_temps(gcode: str) -> set[str]:
+    return set(re.findall(r"^M1[49]0\b[^;\n]*?\bS(\d+)", gcode, re.M)) - {"0"}
+
+
 @pytest.mark.skipif(not _real_orca(), reason="OrcaSlicer not installed")
-@pytest.mark.parametrize("material,temp", [("PLA", "220"), ("PETG", "255")])
-def test_real_orca_slices_ender(test_library, real_orca, material, temp):
+@pytest.mark.parametrize("material,bed", [("PLA", "55"), ("PETG", "70")])
+def test_real_orca_p2s_heats_the_textured_plate(test_library, real_orca, material, bed):
+    job = run_job(JobRequest("test-hook", {}, material, "Normal", printer=P2S), test_library)
+    assert job.ok and job.output == "bambu", (job.errors, job.warnings)
+    gcode = zipfile.ZipFile(job.slice.gcode).read("Metadata/plate_1.gcode").decode(errors="ignore")
+    assert _bed_temps(gcode) == {bed}, _bed_temps(gcode)
+
+
+@pytest.mark.skipif(not _real_orca(), reason="OrcaSlicer not installed")
+@pytest.mark.parametrize("material,temp,bed", [("PLA", "220", "60"), ("PETG", "255", "80")])
+def test_real_orca_slices_ender(test_library, real_orca, material, temp, bed):
     job = run_job(JobRequest("test-hook", {}, material, "Normal", printer=ENDER), test_library)
     log = "\n".join(p.read_text(errors="ignore")[-3000:] for p in job.folder.glob("*.log"))
     assert job.ok and job.slicer_used == "orcaslicer", (job.errors, job.warnings, log)
     text = job.slice.gcode.read_text(errors="ignore")
     assert text.startswith("; Hope Arising 3D Print Shop") and "G28" in text
     assert f"M104 S{temp}" in text or f"M109 S{temp}" in text
+    assert _bed_temps(text) == {bed}, _bed_temps(text)
     assert job.print_time_s > 60 and job.filament_g > 1
     _save_artifact(job.slice.gcode)
 

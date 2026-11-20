@@ -391,7 +391,8 @@ def _make_orca(job: Job) -> bool:
             src = build_plate_3mf(plate, job.folder / "orca_in" / f"plate{i + 1}.3mf", printer)
             final = job.folder / job.plate_name(i)
             sliced = final if job.output == "bambu" else job.folder / "orca_in" / f"plate{i + 1}.gcode.3mf"
-            res = orca.slice(src, sliced, path(printer["orca_profiles"]), job.request.material, overrides)
+            res = orca.slice(src, sliced, path(printer["orca_profiles"]), job.request.material, overrides,
+                             printer["bed_type"])
             made.append(final)
             if job.output != "bambu":
                 extract_gcode(sliced, final)

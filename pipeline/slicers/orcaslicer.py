@@ -141,7 +141,7 @@ class OrcaSlicer:
         self.timeout_s = timeout_s
 
     def slice(self, plate_3mf: Path, out: Path, profiles_dir: Path, material: str,
-              process_overrides: dict | None = None) -> SliceResult:
+              process_overrides: dict | None = None, bed_type: str = "") -> SliceResult:
         """Slice plate_3mf into out (a .gcode.3mf)."""
         machine = profiles_dir / "machine.json"
         process = profiles_dir / "process.json"
@@ -161,6 +161,8 @@ class OrcaSlicer:
                "--load-filaments", str(filament),
                "--outputdir", str(work),
                "--export-3mf", result.name,
+               # Which build plate is on the printer decides the bed temperature.
+               *([f"--curr-bed-type={bed_type}"] if bed_type else []),
                str(plate_3mf)]
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout_s, cwd=work,

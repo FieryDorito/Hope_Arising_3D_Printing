@@ -17,6 +17,9 @@ library:
 # official settings for most printers: Bambu Lab, Creality, Prusa, Elegoo, Anycubic, Voron...
 #   orca_profiles  folder with that printer's OrcaSlicer settings, made by
 #                  tools/make_slicer_profiles.py (see README "Printers")
+#   bed_type       the build plate on the printer - sets the bed temperature. One of:
+#                  Cool Plate, Engineering Plate, High Temp Plate, Textured PEI Plate,
+#                  Textured Cool Plate, Supertack Plate. Change it if you swap plates.
 #   output: gcode  gives a .gcode for the SD card / Wi-Fi (Ender 3, Prusa, Klipper printers...)
 #   output: bambu  gives a ready .gcode.3mf for Bambu Lab, which the app can also send over
 #                  Wi-Fi (see bambu_lan in settings.local.example.yaml)
@@ -27,6 +30,7 @@ printers:
   - name: Creality Ender 3
     output: gcode
     orca_profiles: config/orca/ender3
+    bed_type: High Temp Plate                  # stock bed: PLA 60 °C, PETG 80 °C
     profile: config/printers/ender3.ini        # PrusaSlicer, used if OrcaSlicer is missing
     bed_x_mm: 220
     bed_y_mm: 220
@@ -39,6 +43,7 @@ printers:
     output: bambu
     slicer_app: Bambu Studio or OrcaSlicer
     orca_profiles: config/orca/p2s
+    bed_type: Textured PEI Plate               # the plate the P2S comes with: PLA 55 °C, PETG 70 °C
     profile: config/printers/bambu_p2s_estimate.ini   # rough estimate only, if OrcaSlicer is missing
     bed_x_mm: 256
     bed_y_mm: 256
